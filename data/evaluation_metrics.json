@@ -1,0 +1,274 @@
+{
+  "pairwise_metrics": {
+    "total_true_pairs": 17637,
+    "total_candidate_pairs": 706105,
+    "optimal_threshold": 0.85,
+    "metrics_at_default_threshold": {
+      "threshold": 0.85,
+      "predicted_positive_pairs": 27274.0,
+      "true_positives": 15602.0,
+      "false_positives": 11672.0,
+      "false_negatives": 2035.0,
+      "precision": 0.572,
+      "recall": 0.8846,
+      "f1_score": 0.6948
+    },
+    "best_f1_threshold": 0.95,
+    "best_f1_score": 0.7167
+  },
+  "pairwise_threshold_table": [
+    {
+      "threshold": 0.1,
+      "predicted_positive_pairs": 49654,
+      "true_positives": 16375,
+      "false_positives": 33279,
+      "false_negatives": 1262,
+      "precision": 0.3298,
+      "recall": 0.9284,
+      "f1_score": 0.4867
+    },
+    {
+      "threshold": 0.2,
+      "predicted_positive_pairs": 41889,
+      "true_positives": 16275,
+      "false_positives": 25614,
+      "false_negatives": 1362,
+      "precision": 0.3885,
+      "recall": 0.9228,
+      "f1_score": 0.5468
+    },
+    {
+      "threshold": 0.3,
+      "predicted_positive_pairs": 38087,
+      "true_positives": 16265,
+      "false_positives": 21822,
+      "false_negatives": 1372,
+      "precision": 0.427,
+      "recall": 0.9222,
+      "f1_score": 0.5838
+    },
+    {
+      "threshold": 0.4,
+      "predicted_positive_pairs": 36159,
+      "true_positives": 16230,
+      "false_positives": 19929,
+      "false_negatives": 1407,
+      "precision": 0.4489,
+      "recall": 0.9202,
+      "f1_score": 0.6034
+    },
+    {
+      "threshold": 0.5,
+      "predicted_positive_pairs": 31979,
+      "true_positives": 15994,
+      "false_positives": 15985,
+      "false_negatives": 1643,
+      "precision": 0.5001,
+      "recall": 0.9068,
+      "f1_score": 0.6447
+    },
+    {
+      "threshold": 0.6,
+      "predicted_positive_pairs": 31258,
+      "true_positives": 15950,
+      "false_positives": 15308,
+      "false_negatives": 1687,
+      "precision": 0.5103,
+      "recall": 0.9043,
+      "f1_score": 0.6524
+    },
+    {
+      "threshold": 0.7,
+      "predicted_positive_pairs": 29587,
+      "true_positives": 15813,
+      "false_positives": 13774,
+      "false_negatives": 1824,
+      "precision": 0.5345,
+      "recall": 0.8966,
+      "f1_score": 0.6697
+    },
+    {
+      "threshold": 0.8,
+      "predicted_positive_pairs": 27855,
+      "true_positives": 15668,
+      "false_positives": 12187,
+      "false_negatives": 1969,
+      "precision": 0.5625,
+      "recall": 0.8884,
+      "f1_score": 0.6888
+    },
+    {
+      "threshold": 0.85,
+      "predicted_positive_pairs": 27274,
+      "true_positives": 15602,
+      "false_positives": 11672,
+      "false_negatives": 2035,
+      "precision": 0.572,
+      "recall": 0.8846,
+      "f1_score": 0.6948
+    },
+    {
+      "threshold": 0.9,
+      "predicted_positive_pairs": 26283,
+      "true_positives": 15486,
+      "false_positives": 10797,
+      "false_negatives": 2151,
+      "precision": 0.5892,
+      "recall": 0.878,
+      "f1_score": 0.7052
+    },
+    {
+      "threshold": 0.95,
+      "predicted_positive_pairs": 25305,
+      "true_positives": 15389,
+      "false_positives": 9916,
+      "false_negatives": 2248,
+      "precision": 0.6081,
+      "recall": 0.8725,
+      "f1_score": 0.7167
+    }
+  ],
+  "cluster_metrics": {
+    "bcubed_precision": 0.9183,
+    "bcubed_recall": 0.9395,
+    "bcubed_f1": 0.9288,
+    "macro_purity": 0.972,
+    "total_true_cases_evaluated": 4890,
+    "unfragmented_cases": 4272,
+    "fragmented_cases": 618,
+    "fragmentation_rate_pct": 12.64
+  },
+  "error_diagnostics": {
+    "false_positives_count": 11672,
+    "false_positives_sample": [
+      {
+        "record_1": "forensic_lab__FSL-2024-D2-3574",
+        "name_1": "poonam ansai",
+        "record_2": "police_fir__FIR-2024-D2-4232",
+        "name_2": "poonam a",
+        "district": "D2_Chandranagar",
+        "incident_date_1": "2024-04-13",
+        "incident_date_2": "2024-06-22",
+        "match_probability": 0.9979
+      },
+      {
+        "record_1": "forensic_lab__FSL-2024-D6-0621",
+        "name_1": "farida chauhan",
+        "record_2": "police_fir__FIR-2023-D6-4798",
+        "name_2": "farida c",
+        "district": "D6_Shivgarh",
+        "incident_date_1": "2024-08-05",
+        "incident_date_2": "2023-01-04",
+        "match_probability": 0.9979
+      },
+      {
+        "record_1": "forensic_lab__FSL-2023-D4-0525",
+        "name_1": "maya sharma",
+        "record_2": "hospital_mlc__MLC-2023-833-0927",
+        "name_2": "maya jha",
+        "district": "D4_Kalyanpur",
+        "incident_date_1": "2023-11-15",
+        "incident_date_2": "2023-11-17",
+        "match_probability": 0.8963
+      },
+      {
+        "record_1": "forensic_lab__FSL-2024-D6-3969",
+        "name_1": "radha jha",
+        "record_2": "hospital_mlc__MLC-2023-563-4218",
+        "name_2": "radha mshra",
+        "district": "D6_Shivgarh",
+        "incident_date_1": "2024-01-03",
+        "incident_date_2": "2023-08-22",
+        "match_probability": 0.9739
+      },
+      {
+        "record_1": "forensic_lab__FSL-2023-D2-4363",
+        "name_1": "kavita chauhan",
+        "record_2": "hospital_mlc__MLC-2024-630-4208",
+        "name_2": "kavita c",
+        "district": "D2_Chandranagar",
+        "incident_date_1": "2023-08-03",
+        "incident_date_2": "2024-05-30",
+        "match_probability": 0.9979
+      }
+    ],
+    "evaluated_false_negatives_count": 1123,
+    "false_negatives_sample": [
+      {
+        "record_1": "forensic_lab__FSL-2023-D1-2303",
+        "name_1": "geeta bhatt",
+        "record_2": "police_fir__FIR-2023-D1-2303",
+        "name_2": "bhat geeta",
+        "relative_1": "ajay bhatt",
+        "relative_2": "ajay bhatt",
+        "match_probability": 0.0013
+      },
+      {
+        "record_1": "forensic_lab__FSL-2024-D8-2568",
+        "name_1": "rubina",
+        "record_2": "police_fir__FIR-2023-D8-2568",
+        "name_2": "r dubey",
+        "relative_1": "mohammad dubey",
+        "relative_2": "mohammad dubey",
+        "match_probability": 0.0741
+      },
+      {
+        "record_1": "forensic_lab__FSL-2024-D1-3120",
+        "name_1": "anjali chauhan",
+        "record_2": "police_fir__FIR-2024-D1-3120",
+        "name_2": "chauhn anjali",
+        "relative_1": "arvind chauhan",
+        "relative_2": "arvind chauhan",
+        "match_probability": 0.0005
+      },
+      {
+        "record_1": "forensic_lab__FSL-2023-D4-4652",
+        "name_1": "vandana sharma",
+        "record_2": "prosecutor__PP-CHG-2023-D4-4652",
+        "name_2": "shara vandana",
+        "relative_1": "naresh sharma",
+        "relative_2": "naresh sharma",
+        "match_probability": 0.0005
+      },
+      {
+        "record_1": "forensic_lab__FSL-2024-D4-4950",
+        "name_1": "rekha",
+        "record_2": "police_fir__FIR-2024-D4-4950",
+        "name_2": "reha devi",
+        "relative_1": "sunil devi",
+        "relative_2": "sunil devi",
+        "match_probability": 0.5222
+      }
+    ],
+    "missed_matches_primary_causes_pct": {
+      "missing_relative_name": 50.5,
+      "phonetic_or_name_variation": 29.9,
+      "date_jitter_or_ambiguity": 69.6,
+      "single_initial_name": 70.1
+    }
+  },
+  "downstream_impact": {
+    "fir_to_chargesheet_rate": {
+      "ground_truth_pct": 58.19,
+      "reconstructed_pct": 59.03,
+      "bias_delta_pct": 0.84
+    },
+    "chargesheet_to_verdict_rate": {
+      "ground_truth_pct": 53.53,
+      "reconstructed_pct": 54.44,
+      "bias_delta_pct": 0.91
+    },
+    "leak_point_2_d6_chargesheet_rate": {
+      "ground_truth_pct": 27.18,
+      "reconstructed_pct": 27.81,
+      "bias_delta_pct": 0.63,
+      "status": "DETECTED_ROBUSTLY"
+    },
+    "leak_point_1_d3_forensic_turnaround": {
+      "d3_delay_days": 133.4,
+      "normal_districts_delay_days": 37.7,
+      "delay_ratio": 3.54,
+      "status": "DETECTED_ROBUSTLY"
+    }
+  }
+}
