@@ -1,0 +1,570 @@
+{
+  "total_reconstructed_cases": 5125,
+  "fir_registered_cases": 4347,
+  "verdict_reached_cases": 1397,
+  "overall_completion_rate_pct": 32.14,
+  "funnel_stages": [
+    {
+      "stage_id": "FIR_REGISTERED",
+      "stage_name": "1. Police FIR",
+      "case_count": 4347,
+      "step_conversion_pct": 100.0,
+      "step_leak_pct": 0.0,
+      "cumulative_retention_pct": 100.0
+    },
+    {
+      "stage_id": "MEDICAL_EXAM",
+      "stage_name": "2. Hospital MLC",
+      "case_count": 2956,
+      "step_conversion_pct": 68.0,
+      "step_leak_pct": 32.0,
+      "cumulative_retention_pct": 68.0
+    },
+    {
+      "stage_id": "FORENSIC_REPORT",
+      "stage_name": "3. Forensic Lab (FSL)",
+      "case_count": 2075,
+      "step_conversion_pct": 70.2,
+      "step_leak_pct": 29.8,
+      "cumulative_retention_pct": 47.73
+    },
+    {
+      "stage_id": "CHARGESHEET_FILED",
+      "stage_name": "4. Prosecution Chargesheet",
+      "case_count": 2566,
+      "step_conversion_pct": 123.66,
+      "step_leak_pct": 0.0,
+      "cumulative_retention_pct": 59.03
+    },
+    {
+      "stage_id": "COURT_VERDICT",
+      "stage_name": "5. Court Verdict",
+      "case_count": 1397,
+      "step_conversion_pct": 54.44,
+      "step_leak_pct": 45.56,
+      "cumulative_retention_pct": 32.14
+    }
+  ],
+  "district_funnels": {
+    "D1_Suryapur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 543,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 357,
+        "step_conversion_pct": 65.75,
+        "step_leak_pct": 34.25,
+        "retention_from_fir_pct": 65.75
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 262,
+        "step_conversion_pct": 73.39,
+        "step_leak_pct": 26.61,
+        "retention_from_fir_pct": 48.25
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 347,
+        "step_conversion_pct": 132.44,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 63.9
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 194,
+        "step_conversion_pct": 55.91,
+        "step_leak_pct": 44.09,
+        "retention_from_fir_pct": 35.73
+      }
+    ],
+    "D2_Chandranagar": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 570,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 391,
+        "step_conversion_pct": 68.6,
+        "step_leak_pct": 31.4,
+        "retention_from_fir_pct": 68.6
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 268,
+        "step_conversion_pct": 68.54,
+        "step_leak_pct": 31.46,
+        "retention_from_fir_pct": 47.02
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 359,
+        "step_conversion_pct": 133.96,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 62.98
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 196,
+        "step_conversion_pct": 54.6,
+        "step_leak_pct": 45.4,
+        "retention_from_fir_pct": 34.39
+      }
+    ],
+    "D3_Rudrapur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 503,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 346,
+        "step_conversion_pct": 68.79,
+        "step_leak_pct": 31.21,
+        "retention_from_fir_pct": 68.79
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 243,
+        "step_conversion_pct": 70.23,
+        "step_leak_pct": 29.77,
+        "retention_from_fir_pct": 48.31
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 334,
+        "step_conversion_pct": 137.45,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 66.4
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 185,
+        "step_conversion_pct": 55.39,
+        "step_leak_pct": 44.61,
+        "retention_from_fir_pct": 36.78
+      }
+    ],
+    "D4_Kalyanpur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 559,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 393,
+        "step_conversion_pct": 70.3,
+        "step_leak_pct": 29.7,
+        "retention_from_fir_pct": 70.3
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 266,
+        "step_conversion_pct": 67.68,
+        "step_leak_pct": 32.32,
+        "retention_from_fir_pct": 47.58
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 345,
+        "step_conversion_pct": 129.7,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 61.72
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 169,
+        "step_conversion_pct": 48.99,
+        "step_leak_pct": 51.01,
+        "retention_from_fir_pct": 30.23
+      }
+    ],
+    "D5_Mayaganj": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 578,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 388,
+        "step_conversion_pct": 67.13,
+        "step_leak_pct": 32.87,
+        "retention_from_fir_pct": 67.13
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 268,
+        "step_conversion_pct": 69.07,
+        "step_leak_pct": 30.93,
+        "retention_from_fir_pct": 46.37
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 364,
+        "step_conversion_pct": 135.82,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 62.98
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 199,
+        "step_conversion_pct": 54.67,
+        "step_leak_pct": 45.33,
+        "retention_from_fir_pct": 34.43
+      }
+    ],
+    "D6_Shivgarh": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 543,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 386,
+        "step_conversion_pct": 71.09,
+        "step_leak_pct": 28.91,
+        "retention_from_fir_pct": 71.09
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 262,
+        "step_conversion_pct": 67.88,
+        "step_leak_pct": 32.12,
+        "retention_from_fir_pct": 48.25
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 151,
+        "step_conversion_pct": 57.63,
+        "step_leak_pct": 42.37,
+        "retention_from_fir_pct": 27.81
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 84,
+        "step_conversion_pct": 55.63,
+        "step_leak_pct": 44.37,
+        "retention_from_fir_pct": 15.47
+      }
+    ],
+    "D7_Anandpur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 540,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 360,
+        "step_conversion_pct": 66.67,
+        "step_leak_pct": 33.33,
+        "retention_from_fir_pct": 66.67
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 255,
+        "step_conversion_pct": 70.83,
+        "step_leak_pct": 29.17,
+        "retention_from_fir_pct": 47.22
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 340,
+        "step_conversion_pct": 133.33,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 62.96
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 187,
+        "step_conversion_pct": 55.0,
+        "step_leak_pct": 45.0,
+        "retention_from_fir_pct": 34.63
+      }
+    ],
+    "D8_Devkalan": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 511,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 335,
+        "step_conversion_pct": 65.56,
+        "step_leak_pct": 34.44,
+        "retention_from_fir_pct": 65.56
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 251,
+        "step_conversion_pct": 74.93,
+        "step_leak_pct": 25.07,
+        "retention_from_fir_pct": 49.12
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 326,
+        "step_conversion_pct": 129.88,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 63.8
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 183,
+        "step_conversion_pct": 56.13,
+        "step_leak_pct": 43.87,
+        "retention_from_fir_pct": 35.81
+      }
+    ]
+  },
+  "category_funnels": {
+    "domestic_violence": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 853,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 661,
+        "step_conversion_pct": 77.49,
+        "step_leak_pct": 22.51,
+        "retention_from_fir_pct": 77.49
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 270,
+        "step_conversion_pct": 40.85,
+        "step_leak_pct": 59.15,
+        "retention_from_fir_pct": 31.65
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 556,
+        "step_conversion_pct": 205.93,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 65.18
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 300,
+        "step_conversion_pct": 53.96,
+        "step_leak_pct": 46.04,
+        "retention_from_fir_pct": 35.17
+      }
+    ],
+    "dowry_harassment": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 859,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 543,
+        "step_conversion_pct": 63.21,
+        "step_leak_pct": 36.79,
+        "retention_from_fir_pct": 63.21
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 387,
+        "step_conversion_pct": 71.27,
+        "step_leak_pct": 28.73,
+        "retention_from_fir_pct": 45.05
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 570,
+        "step_conversion_pct": 147.29,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 66.36
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 307,
+        "step_conversion_pct": 53.86,
+        "step_leak_pct": 46.14,
+        "retention_from_fir_pct": 35.74
+      }
+    ],
+    "general_violence": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 0,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 0.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 317,
+        "step_conversion_pct": 0.0,
+        "step_leak_pct": 100.0,
+        "retention_from_fir_pct": 0.0
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 328,
+        "step_conversion_pct": 103.47,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 0.0
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 0,
+        "step_conversion_pct": 0.0,
+        "step_leak_pct": 100.0,
+        "retention_from_fir_pct": 0.0
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 43,
+        "step_conversion_pct": 0.0,
+        "step_leak_pct": 100.0,
+        "retention_from_fir_pct": 0.0
+      }
+    ],
+    "sexual_assault": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 891,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 779,
+        "step_conversion_pct": 87.43,
+        "step_leak_pct": 12.57,
+        "retention_from_fir_pct": 87.43
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 692,
+        "step_conversion_pct": 88.83,
+        "step_leak_pct": 11.17,
+        "retention_from_fir_pct": 77.67
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 602,
+        "step_conversion_pct": 86.99,
+        "step_leak_pct": 13.01,
+        "retention_from_fir_pct": 67.56
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 301,
+        "step_conversion_pct": 50.0,
+        "step_leak_pct": 50.0,
+        "retention_from_fir_pct": 33.78
+      }
+    ],
+    "stalking": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 879,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 276,
+        "step_conversion_pct": 31.4,
+        "step_leak_pct": 68.6,
+        "retention_from_fir_pct": 31.4
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 78,
+        "step_conversion_pct": 28.26,
+        "step_leak_pct": 71.74,
+        "retention_from_fir_pct": 8.87
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 273,
+        "step_conversion_pct": 350.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 31.06
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 137,
+        "step_conversion_pct": 50.18,
+        "step_leak_pct": 49.82,
+        "retention_from_fir_pct": 15.59
+      }
+    ],
+    "trafficking": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 865,
+        "step_conversion_pct": 100.0,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 100.0
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 380,
+        "step_conversion_pct": 43.93,
+        "step_leak_pct": 56.07,
+        "retention_from_fir_pct": 43.93
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 320,
+        "step_conversion_pct": 84.21,
+        "step_leak_pct": 15.79,
+        "retention_from_fir_pct": 36.99
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 565,
+        "step_conversion_pct": 176.56,
+        "step_leak_pct": 0.0,
+        "retention_from_fir_pct": 65.32
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 309,
+        "step_conversion_pct": 54.69,
+        "step_leak_pct": 45.31,
+        "retention_from_fir_pct": 35.72
+      }
+    ]
+  }
+}

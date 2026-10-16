@@ -12,6 +12,7 @@ from src.journey import (
     build_event_log,
     discover_process_variants,
     compute_directly_follows_graph,
+    discover_pm4py_dfg,
     run_journey_analysis
 )
 
@@ -83,6 +84,19 @@ def test_compute_directly_follows_graph(setup_journey_data):
     assert "district_dfg" in summary
 
 
+def test_discover_pm4py_dfg(setup_journey_data):
+    """Validates PM4Py process mining discovery of transitions and durations."""
+    df_events = build_event_log(data_dir=setup_journey_data)
+    pm4py_metrics = discover_pm4py_dfg(df_events)
+
+    assert "start_activities" in pm4py_metrics
+    assert "end_activities" in pm4py_metrics
+    assert "frequency_dfg" in pm4py_metrics
+    assert "performance_dfg" in pm4py_metrics
+    assert len(pm4py_metrics["frequency_dfg"]) > 0
+    assert len(pm4py_metrics["performance_dfg"]) > 0
+
+
 def test_end_to_end_journey_pipeline(setup_journey_data):
     """Tests the full run_journey_analysis pipeline and artifact persistence."""
     summary = run_journey_analysis(data_dir=setup_journey_data)
@@ -95,4 +109,5 @@ def test_end_to_end_journey_pipeline(setup_journey_data):
     assert os.path.exists(os.path.join(setup_journey_data, "event_log.csv"))
     assert os.path.exists(os.path.join(setup_journey_data, "journey_dfg.json"))
     assert os.path.exists(os.path.join(setup_journey_data, "journey_variants.json"))
+    assert os.path.exists(os.path.join(setup_journey_data, "journey_pm4py.json"))
     assert os.path.exists(os.path.join(setup_journey_data, "journey_metrics.json"))

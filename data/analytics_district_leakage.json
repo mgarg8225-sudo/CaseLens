@@ -1,0 +1,184 @@
+{
+  "state_benchmarks": {
+    "fir_to_chargesheet_rate_pct": 59.0,
+    "forensic_median_days": 43.0,
+    "trial_median_days": 288.0
+  },
+  "districts": {
+    "D1_Suryapur": {
+      "total_cases": 632,
+      "fir_registered": 543,
+      "chargesheet_filed": 347,
+      "court_verdict": 194,
+      "fir_to_chargesheet_rate_pct": 63.9,
+      "chargesheet_to_verdict_rate_pct": 55.9,
+      "end_to_end_completion_rate_pct": 35.7,
+      "forensic_delay_avg_days": 41.8,
+      "forensic_delay_median_days": 41.0,
+      "trial_delay_avg_days": 279.8,
+      "trial_delay_median_days": 277.0,
+      "status": "NORMAL",
+      "vulnerability_score": 2.0,
+      "detected_anomalies": []
+    },
+    "D2_Chandranagar": {
+      "total_cases": 672,
+      "fir_registered": 570,
+      "chargesheet_filed": 359,
+      "court_verdict": 196,
+      "fir_to_chargesheet_rate_pct": 63.0,
+      "chargesheet_to_verdict_rate_pct": 54.6,
+      "end_to_end_completion_rate_pct": 34.4,
+      "forensic_delay_avg_days": 43.8,
+      "forensic_delay_median_days": 42.0,
+      "trial_delay_avg_days": 283.3,
+      "trial_delay_median_days": 286.5,
+      "status": "NORMAL",
+      "vulnerability_score": 4.4,
+      "detected_anomalies": []
+    },
+    "D3_Rudrapur": {
+      "total_cases": 592,
+      "fir_registered": 503,
+      "chargesheet_filed": 334,
+      "court_verdict": 185,
+      "fir_to_chargesheet_rate_pct": 66.4,
+      "chargesheet_to_verdict_rate_pct": 55.4,
+      "end_to_end_completion_rate_pct": 36.8,
+      "forensic_delay_avg_days": 137.5,
+      "forensic_delay_median_days": 137.0,
+      "trial_delay_avg_days": 279.4,
+      "trial_delay_median_days": 281.0,
+      "status": "CRITICAL",
+      "vulnerability_score": 34.0,
+      "detected_anomalies": [
+        {
+          "leak_type": "FORENSIC_LAB_BOTTLENECK",
+          "severity": "CRITICAL",
+          "description": "Forensic turnaround is 3.19x state baseline (137.0d vs state 43.0d)."
+        }
+      ]
+    },
+    "D4_Kalyanpur": {
+      "total_cases": 657,
+      "fir_registered": 559,
+      "chargesheet_filed": 345,
+      "court_verdict": 169,
+      "fir_to_chargesheet_rate_pct": 61.7,
+      "chargesheet_to_verdict_rate_pct": 49.0,
+      "end_to_end_completion_rate_pct": 30.2,
+      "forensic_delay_avg_days": 42.3,
+      "forensic_delay_median_days": 41.0,
+      "trial_delay_avg_days": 282.7,
+      "trial_delay_median_days": 279.0,
+      "status": "NORMAL",
+      "vulnerability_score": 5.3,
+      "detected_anomalies": []
+    },
+    "D5_Mayaganj": {
+      "total_cases": 699,
+      "fir_registered": 578,
+      "chargesheet_filed": 364,
+      "court_verdict": 199,
+      "fir_to_chargesheet_rate_pct": 63.0,
+      "chargesheet_to_verdict_rate_pct": 54.7,
+      "end_to_end_completion_rate_pct": 34.4,
+      "forensic_delay_avg_days": 46.5,
+      "forensic_delay_median_days": 41.0,
+      "trial_delay_avg_days": 273.2,
+      "trial_delay_median_days": 273.0,
+      "status": "NORMAL",
+      "vulnerability_score": 3.4,
+      "detected_anomalies": []
+    },
+    "D6_Shivgarh": {
+      "total_cases": 642,
+      "fir_registered": 543,
+      "chargesheet_filed": 151,
+      "court_verdict": 84,
+      "fir_to_chargesheet_rate_pct": 27.8,
+      "chargesheet_to_verdict_rate_pct": 55.6,
+      "end_to_end_completion_rate_pct": 15.5,
+      "forensic_delay_avg_days": 43.3,
+      "forensic_delay_median_days": 42.0,
+      "trial_delay_avg_days": 276.6,
+      "trial_delay_median_days": 270.5,
+      "status": "CRITICAL",
+      "vulnerability_score": 56.5,
+      "detected_anomalies": [
+        {
+          "leak_type": "POLICE_CHARGESHEET_ATTRITION",
+          "severity": "CRITICAL",
+          "description": "Severe police-to-prosecution drop-off: 72.2% of FIRs fail to reach chargesheet."
+        }
+      ]
+    },
+    "D7_Anandpur": {
+      "total_cases": 635,
+      "fir_registered": 540,
+      "chargesheet_filed": 340,
+      "court_verdict": 187,
+      "fir_to_chargesheet_rate_pct": 63.0,
+      "chargesheet_to_verdict_rate_pct": 55.0,
+      "end_to_end_completion_rate_pct": 34.6,
+      "forensic_delay_avg_days": 42.7,
+      "forensic_delay_median_days": 40.0,
+      "trial_delay_avg_days": 612.9,
+      "trial_delay_median_days": 616.0,
+      "status": "CRITICAL",
+      "vulnerability_score": 36.6,
+      "detected_anomalies": [
+        {
+          "leak_type": "JUDICIAL_TRIAL_DELAY",
+          "severity": "CRITICAL",
+          "description": "Court trial duration is 2.14x state baseline (616.0d vs state 288.0d)."
+        }
+      ]
+    },
+    "D8_Devkalan": {
+      "total_cases": 596,
+      "fir_registered": 511,
+      "chargesheet_filed": 326,
+      "court_verdict": 183,
+      "fir_to_chargesheet_rate_pct": 63.8,
+      "chargesheet_to_verdict_rate_pct": 56.1,
+      "end_to_end_completion_rate_pct": 35.8,
+      "forensic_delay_avg_days": 43.6,
+      "forensic_delay_median_days": 42.0,
+      "trial_delay_avg_days": 280.5,
+      "trial_delay_median_days": 274.0,
+      "status": "NORMAL",
+      "vulnerability_score": 2.5,
+      "detected_anomalies": []
+    }
+  },
+  "systemic_leak_points": [
+    {
+      "district": "D3_Rudrapur",
+      "leak_code": "LP-01-FORENSIC-DELAY",
+      "title": "Severe Forensic Lab Turnaround Delay",
+      "delay_days": 137.5,
+      "baseline_days": 43.0,
+      "multiplier": 3.19,
+      "affected_cases": 201
+    },
+    {
+      "district": "D6_Shivgarh",
+      "leak_code": "LP-02-POLICE-ATTRITION",
+      "title": "Excessive FIR-to-Chargesheet Drop-off",
+      "chargesheet_rate_pct": 27.8,
+      "state_benchmark_pct": 59.0,
+      "drop_off_leak_pct": 72.2,
+      "affected_firs": 392
+    },
+    {
+      "district": "D7_Anandpur",
+      "leak_code": "LP-03-COURT-DELAY",
+      "title": "Severe Judicial Trial Adjudication Delay",
+      "trial_delay_days": 612.9,
+      "baseline_days": 288.0,
+      "multiplier": 2.14,
+      "cases_in_trial": 180
+    }
+  ]
+}

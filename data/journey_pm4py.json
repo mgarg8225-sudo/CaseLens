@@ -1,0 +1,284 @@
+{
+  "start_activities": {
+    "FIR_REGISTERED": 3180,
+    "MEDICAL_EXAM": 1518,
+    "FORENSIC_REPORT": 277,
+    "CHARGESHEET_FILED": 110,
+    "COURT_VERDICT": 40
+  },
+  "end_activities": {
+    "COURT_VERDICT": 1396,
+    "CHARGESHEET_FILED": 1240,
+    "FORENSIC_REPORT": 886,
+    "FIR_REGISTERED": 1064,
+    "MEDICAL_EXAM": 539
+  },
+  "frequency_dfg": [
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "MEDICAL_EXAM",
+      "frequency": 1547
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "FIR_REGISTERED",
+      "frequency": 1324
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "COURT_VERDICT",
+      "frequency": 1291
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "CHARGESHEET_FILED",
+      "frequency": 1141
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "FORENSIC_REPORT",
+      "frequency": 992
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "CHARGESHEET_FILED",
+      "frequency": 905
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "FORENSIC_REPORT",
+      "frequency": 768
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "CHARGESHEET_FILED",
+      "frequency": 438
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "FIR_REGISTERED",
+      "frequency": 301
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "CHARGESHEET_FILED",
+      "frequency": 138
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "MEDICAL_EXAM",
+      "frequency": 109
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "FORENSIC_REPORT",
+      "frequency": 87
+    },
+    {
+      "from_activity": "COURT_VERDICT",
+      "to_activity": "COURT_VERDICT",
+      "frequency": 66
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "FORENSIC_REPORT",
+      "frequency": 48
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "COURT_VERDICT",
+      "frequency": 37
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "COURT_VERDICT",
+      "frequency": 15
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "COURT_VERDICT",
+      "frequency": 14
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "FIR_REGISTERED",
+      "frequency": 12
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "MEDICAL_EXAM",
+      "frequency": 9
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "MEDICAL_EXAM",
+      "frequency": 9
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "FIR_REGISTERED",
+      "frequency": 7
+    },
+    {
+      "from_activity": "COURT_VERDICT",
+      "to_activity": "CHARGESHEET_FILED",
+      "frequency": 1
+    }
+  ],
+  "performance_dfg": [
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "COURT_VERDICT",
+      "mean_days": 413.9,
+      "median_days": 379.0,
+      "max_days": 832.0
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "COURT_VERDICT",
+      "mean_days": 320.6,
+      "median_days": 284.0,
+      "max_days": 853.0
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "COURT_VERDICT",
+      "mean_days": 300.4,
+      "median_days": 300.0,
+      "max_days": 801.0
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "COURT_VERDICT",
+      "mean_days": 278.6,
+      "median_days": 297.0,
+      "max_days": 424.0
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "FIR_REGISTERED",
+      "mean_days": 98.7,
+      "median_days": 71.0,
+      "max_days": 232.0
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "MEDICAL_EXAM",
+      "mean_days": 96.8,
+      "median_days": 86.0,
+      "max_days": 187.0
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "FIR_REGISTERED",
+      "mean_days": 69.2,
+      "median_days": 53.0,
+      "max_days": 193.0
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "CHARGESHEET_FILED",
+      "mean_days": 68.9,
+      "median_days": 68.0,
+      "max_days": 260.0
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "CHARGESHEET_FILED",
+      "mean_days": 68.9,
+      "median_days": 67.0,
+      "max_days": 206.0
+    },
+    {
+      "from_activity": "COURT_VERDICT",
+      "to_activity": "COURT_VERDICT",
+      "mean_days": 63.7,
+      "median_days": 51.5,
+      "max_days": 265.0
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "CHARGESHEET_FILED",
+      "mean_days": 61.9,
+      "median_days": 63.0,
+      "max_days": 133.0
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "FORENSIC_REPORT",
+      "mean_days": 51.8,
+      "median_days": 42.0,
+      "max_days": 343.0
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "FORENSIC_REPORT",
+      "mean_days": 49.2,
+      "median_days": 41.0,
+      "max_days": 183.0
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "FORENSIC_REPORT",
+      "mean_days": 45.1,
+      "median_days": 19.5,
+      "max_days": 218.0
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "CHARGESHEET_FILED",
+      "mean_days": 33.8,
+      "median_days": 28.0,
+      "max_days": 171.0
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "MEDICAL_EXAM",
+      "mean_days": 33.8,
+      "median_days": 27.0,
+      "max_days": 83.0
+    },
+    {
+      "from_activity": "COURT_VERDICT",
+      "to_activity": "CHARGESHEET_FILED",
+      "mean_days": 23.0,
+      "median_days": 23.0,
+      "max_days": 23.0
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "FORENSIC_REPORT",
+      "mean_days": 13.1,
+      "median_days": 9.0,
+      "max_days": 93.0
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "MEDICAL_EXAM",
+      "mean_days": 5.0,
+      "median_days": 1.0,
+      "max_days": 169.0
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "FIR_REGISTERED",
+      "mean_days": 4.7,
+      "median_days": 2.0,
+      "max_days": 293.0
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "FIR_REGISTERED",
+      "mean_days": 3.8,
+      "median_days": 1.0,
+      "max_days": 103.0
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "MEDICAL_EXAM",
+      "mean_days": 3.3,
+      "median_days": 1.0,
+      "max_days": 237.0
+    }
+  ]
+}

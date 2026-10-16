@@ -1,0 +1,569 @@
+{
+  "CHARGESHEET_FILED -> CHARGESHEET_FILED": {
+    "sample_count": 138,
+    "mean_days": 33.8,
+    "std_days": 26.9,
+    "median_days": 28.0,
+    "p25_days": 15.2,
+    "p75_days": 46.0,
+    "iqr_days": 30.8,
+    "p90_days": 64.2,
+    "p95_days": 72.3,
+    "min_days": 0.0,
+    "max_days": 171.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 86.2
+    },
+    "delay_buckets": {
+      "<14_days": 33,
+      "14_to_30_days": 40,
+      "31_to_60_days": 46,
+      "61_to_90_days": 16,
+      "91_to_180_days": 3,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  },
+  "CHARGESHEET_FILED -> COURT_VERDICT": {
+    "sample_count": 1291,
+    "mean_days": 320.6,
+    "std_days": 130.1,
+    "median_days": 284.0,
+    "p25_days": 247.0,
+    "p75_days": 333.0,
+    "iqr_days": 86.0,
+    "p90_days": 560.0,
+    "p95_days": 634.0,
+    "min_days": 41.0,
+    "max_days": 853.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 0.2
+    },
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 0,
+      "31_to_60_days": 3,
+      "61_to_90_days": 3,
+      "91_to_180_days": 31,
+      "181_to_365_days": 1031,
+      ">365_days": 223
+    }
+  },
+  "CHARGESHEET_FILED -> FIR_REGISTERED": {
+    "sample_count": 7,
+    "mean_days": 98.7,
+    "std_days": 86.5,
+    "median_days": 71.0,
+    "p25_days": 27.0,
+    "p75_days": 165.5,
+    "iqr_days": 138.5,
+    "p90_days": 222.4,
+    "p95_days": 227.2,
+    "min_days": 3.0,
+    "max_days": 232.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 42.9
+    },
+    "delay_buckets": {
+      "<14_days": 2,
+      "14_to_30_days": 0,
+      "31_to_60_days": 1,
+      "61_to_90_days": 1,
+      "91_to_180_days": 1,
+      "181_to_365_days": 2,
+      ">365_days": 0
+    }
+  },
+  "CHARGESHEET_FILED -> FORENSIC_REPORT": {
+    "sample_count": 48,
+    "mean_days": 45.1,
+    "std_days": 51.8,
+    "median_days": 19.5,
+    "p25_days": 9.8,
+    "p75_days": 63.0,
+    "iqr_days": 53.2,
+    "p90_days": 101.9,
+    "p95_days": 164.5,
+    "min_days": 1.0,
+    "max_days": 218.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 70.8
+    },
+    "delay_buckets": {
+      "<14_days": 16,
+      "14_to_30_days": 9,
+      "31_to_60_days": 9,
+      "61_to_90_days": 8,
+      "91_to_180_days": 3,
+      "181_to_365_days": 3,
+      ">365_days": 0
+    }
+  },
+  "CHARGESHEET_FILED -> MEDICAL_EXAM": {
+    "sample_count": 9,
+    "mean_days": 96.8,
+    "std_days": 53.1,
+    "median_days": 86.0,
+    "p25_days": 50.0,
+    "p75_days": 136.0,
+    "iqr_days": 86.0,
+    "p90_days": 151.0,
+    "p95_days": 169.0,
+    "min_days": 18.0,
+    "max_days": 187.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 33.3
+    },
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 1,
+      "31_to_60_days": 2,
+      "61_to_90_days": 2,
+      "91_to_180_days": 3,
+      "181_to_365_days": 1,
+      ">365_days": 0
+    }
+  },
+  "COURT_VERDICT -> COURT_VERDICT": {
+    "sample_count": 66,
+    "mean_days": 63.7,
+    "std_days": 53.4,
+    "median_days": 51.5,
+    "p25_days": 24.2,
+    "p75_days": 81.0,
+    "iqr_days": 56.8,
+    "p90_days": 138.5,
+    "p95_days": 170.2,
+    "min_days": 1.0,
+    "max_days": 265.0,
+    "statutory_compliance": {},
+    "delay_buckets": {
+      "<14_days": 6,
+      "14_to_30_days": 14,
+      "31_to_60_days": 22,
+      "61_to_90_days": 10,
+      "91_to_180_days": 11,
+      "181_to_365_days": 3,
+      ">365_days": 0
+    }
+  },
+  "FIR_REGISTERED -> CHARGESHEET_FILED": {
+    "sample_count": 905,
+    "mean_days": 68.9,
+    "std_days": 27.4,
+    "median_days": 68.0,
+    "p25_days": 51.0,
+    "p75_days": 81.0,
+    "iqr_days": 30.0,
+    "p90_days": 98.0,
+    "p95_days": 111.0,
+    "min_days": 3.0,
+    "max_days": 260.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 38.1
+    },
+    "delay_buckets": {
+      "<14_days": 4,
+      "14_to_30_days": 24,
+      "31_to_60_days": 317,
+      "61_to_90_days": 429,
+      "91_to_180_days": 121,
+      "181_to_365_days": 10,
+      ">365_days": 0
+    }
+  },
+  "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)": {
+    "sample_count": 2398,
+    "mean_days": 92.7,
+    "std_days": 43.3,
+    "median_days": 86.0,
+    "p25_days": 65.0,
+    "p75_days": 112.0,
+    "iqr_days": 47.0,
+    "p90_days": 139.0,
+    "p95_days": 188.0,
+    "min_days": 0.0,
+    "max_days": 284.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 21.0
+    },
+    "delay_buckets": {
+      "<14_days": 13,
+      "14_to_30_days": 34,
+      "31_to_60_days": 457,
+      "61_to_90_days": 809,
+      "91_to_180_days": 952,
+      "181_to_365_days": 133,
+      ">365_days": 0
+    }
+  },
+  "FIR_REGISTERED -> COURT_VERDICT": {
+    "sample_count": 15,
+    "mean_days": 413.9,
+    "std_days": 158.5,
+    "median_days": 379.0,
+    "p25_days": 324.5,
+    "p75_days": 435.0,
+    "iqr_days": 110.5,
+    "p90_days": 626.8,
+    "p95_days": 741.0,
+    "min_days": 208.0,
+    "max_days": 832.0,
+    "statutory_compliance": {},
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 0,
+      "31_to_60_days": 0,
+      "61_to_90_days": 0,
+      "91_to_180_days": 0,
+      "181_to_365_days": 7,
+      ">365_days": 8
+    }
+  },
+  "FIR_REGISTERED -> COURT_VERDICT (E2E)": {
+    "sample_count": 1305,
+    "mean_days": 414.6,
+    "std_days": 132.8,
+    "median_days": 378.0,
+    "p25_days": 333.0,
+    "p75_days": 444.0,
+    "iqr_days": 111.0,
+    "p90_days": 631.6,
+    "p95_days": 729.8,
+    "min_days": 127.0,
+    "max_days": 967.0,
+    "statutory_compliance": {},
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 0,
+      "31_to_60_days": 0,
+      "61_to_90_days": 0,
+      "91_to_180_days": 2,
+      "181_to_365_days": 558,
+      ">365_days": 745
+    }
+  },
+  "FIR_REGISTERED -> FIR_REGISTERED": {
+    "sample_count": 301,
+    "mean_days": 3.8,
+    "std_days": 8.0,
+    "median_days": 1.0,
+    "p25_days": 0.0,
+    "p75_days": 5.0,
+    "iqr_days": 5.0,
+    "p90_days": 11.0,
+    "p95_days": 17.0,
+    "min_days": 0.0,
+    "max_days": 103.0,
+    "statutory_compliance": {},
+    "delay_buckets": {
+      "<14_days": 277,
+      "14_to_30_days": 21,
+      "31_to_60_days": 2,
+      "61_to_90_days": 0,
+      "91_to_180_days": 1,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  },
+  "FIR_REGISTERED -> FORENSIC_REPORT": {
+    "sample_count": 992,
+    "mean_days": 51.8,
+    "std_days": 35.0,
+    "median_days": 42.0,
+    "p25_days": 35.0,
+    "p75_days": 49.0,
+    "iqr_days": 14.0,
+    "p90_days": 115.0,
+    "p95_days": 140.4,
+    "min_days": 5.0,
+    "max_days": 343.0,
+    "statutory_compliance": {
+      "within_30_days_pct": 13.2
+    },
+    "delay_buckets": {
+      "<14_days": 8,
+      "14_to_30_days": 123,
+      "31_to_60_days": 731,
+      "61_to_90_days": 14,
+      "91_to_180_days": 111,
+      "181_to_365_days": 5,
+      ">365_days": 0
+    }
+  },
+  "FIR_REGISTERED -> MEDICAL_EXAM": {
+    "sample_count": 1547,
+    "mean_days": 3.3,
+    "std_days": 15.1,
+    "median_days": 1.0,
+    "p25_days": 0.0,
+    "p75_days": 2.0,
+    "iqr_days": 2.0,
+    "p90_days": 4.0,
+    "p95_days": 6.0,
+    "min_days": 0.0,
+    "max_days": 237.0,
+    "statutory_compliance": {
+      "within_24h_pct": 63.1
+    },
+    "delay_buckets": {
+      "<14_days": 1509,
+      "14_to_30_days": 12,
+      "31_to_60_days": 10,
+      "61_to_90_days": 5,
+      "91_to_180_days": 8,
+      "181_to_365_days": 3,
+      ">365_days": 0
+    }
+  },
+  "FORENSIC_REPORT -> CHARGESHEET_FILED": {
+    "sample_count": 1141,
+    "mean_days": 61.9,
+    "std_days": 22.8,
+    "median_days": 63.0,
+    "p25_days": 48.0,
+    "p75_days": 77.0,
+    "iqr_days": 29.0,
+    "p90_days": 90.0,
+    "p95_days": 97.0,
+    "min_days": 0.0,
+    "max_days": 133.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 45.5
+    },
+    "delay_buckets": {
+      "<14_days": 32,
+      "14_to_30_days": 72,
+      "31_to_60_days": 415,
+      "61_to_90_days": 508,
+      "91_to_180_days": 114,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  },
+  "FORENSIC_REPORT -> COURT_VERDICT": {
+    "sample_count": 37,
+    "mean_days": 300.4,
+    "std_days": 132.3,
+    "median_days": 300.0,
+    "p25_days": 246.0,
+    "p75_days": 362.0,
+    "iqr_days": 116.0,
+    "p90_days": 412.2,
+    "p95_days": 476.6,
+    "min_days": 44.0,
+    "max_days": 801.0,
+    "statutory_compliance": {
+      "within_30_days_pct": 0.0
+    },
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 0,
+      "31_to_60_days": 2,
+      "61_to_90_days": 0,
+      "91_to_180_days": 3,
+      "181_to_365_days": 24,
+      ">365_days": 8
+    }
+  },
+  "FORENSIC_REPORT -> FIR_REGISTERED": {
+    "sample_count": 12,
+    "mean_days": 69.2,
+    "std_days": 50.6,
+    "median_days": 53.0,
+    "p25_days": 38.5,
+    "p75_days": 74.2,
+    "iqr_days": 35.7,
+    "p90_days": 144.9,
+    "p95_days": 170.4,
+    "min_days": 17.0,
+    "max_days": 193.0,
+    "statutory_compliance": {
+      "within_30_days_pct": 25.0
+    },
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 3,
+      "31_to_60_days": 4,
+      "61_to_90_days": 3,
+      "91_to_180_days": 1,
+      "181_to_365_days": 1,
+      ">365_days": 0
+    }
+  },
+  "FORENSIC_REPORT -> FORENSIC_REPORT": {
+    "sample_count": 87,
+    "mean_days": 13.1,
+    "std_days": 16.6,
+    "median_days": 9.0,
+    "p25_days": 4.0,
+    "p75_days": 15.5,
+    "iqr_days": 11.5,
+    "p90_days": 25.0,
+    "p95_days": 33.8,
+    "min_days": 0.0,
+    "max_days": 93.0,
+    "statutory_compliance": {
+      "within_30_days_pct": 93.1
+    },
+    "delay_buckets": {
+      "<14_days": 64,
+      "14_to_30_days": 17,
+      "31_to_60_days": 3,
+      "61_to_90_days": 1,
+      "91_to_180_days": 2,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  },
+  "FORENSIC_REPORT -> MEDICAL_EXAM": {
+    "sample_count": 9,
+    "mean_days": 33.8,
+    "std_days": 22.9,
+    "median_days": 27.0,
+    "p25_days": 15.0,
+    "p75_days": 34.0,
+    "iqr_days": 19.0,
+    "p90_days": 68.6,
+    "p95_days": 75.8,
+    "min_days": 13.0,
+    "max_days": 83.0,
+    "statutory_compliance": {
+      "within_24h_pct": 0.0
+    },
+    "delay_buckets": {
+      "<14_days": 1,
+      "14_to_30_days": 5,
+      "31_to_60_days": 1,
+      "61_to_90_days": 2,
+      "91_to_180_days": 0,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  },
+  "MEDICAL_EXAM -> CHARGESHEET_FILED": {
+    "sample_count": 438,
+    "mean_days": 68.9,
+    "std_days": 29.1,
+    "median_days": 67.0,
+    "p25_days": 49.0,
+    "p75_days": 82.0,
+    "iqr_days": 33.0,
+    "p90_days": 103.3,
+    "p95_days": 123.0,
+    "min_days": 13.0,
+    "max_days": 206.0,
+    "statutory_compliance": {
+      "within_60_days_pct": 40.2
+    },
+    "delay_buckets": {
+      "<14_days": 1,
+      "14_to_30_days": 20,
+      "31_to_60_days": 155,
+      "61_to_90_days": 192,
+      "91_to_180_days": 66,
+      "181_to_365_days": 4,
+      ">365_days": 0
+    }
+  },
+  "MEDICAL_EXAM -> COURT_VERDICT": {
+    "sample_count": 14,
+    "mean_days": 278.6,
+    "std_days": 85.2,
+    "median_days": 297.0,
+    "p25_days": 225.0,
+    "p75_days": 342.0,
+    "iqr_days": 117.0,
+    "p90_days": 358.0,
+    "p95_days": 381.1,
+    "min_days": 132.0,
+    "max_days": 424.0,
+    "statutory_compliance": {
+      "within_24h_pct": 0.0
+    },
+    "delay_buckets": {
+      "<14_days": 0,
+      "14_to_30_days": 0,
+      "31_to_60_days": 0,
+      "61_to_90_days": 0,
+      "91_to_180_days": 3,
+      "181_to_365_days": 10,
+      ">365_days": 1
+    }
+  },
+  "MEDICAL_EXAM -> FIR_REGISTERED": {
+    "sample_count": 1324,
+    "mean_days": 4.7,
+    "std_days": 18.3,
+    "median_days": 2.0,
+    "p25_days": 1.0,
+    "p75_days": 4.0,
+    "iqr_days": 3.0,
+    "p90_days": 6.0,
+    "p95_days": 9.0,
+    "min_days": 1.0,
+    "max_days": 293.0,
+    "statutory_compliance": {
+      "within_24h_pct": 36.3
+    },
+    "delay_buckets": {
+      "<14_days": 1289,
+      "14_to_30_days": 15,
+      "31_to_60_days": 5,
+      "61_to_90_days": 6,
+      "91_to_180_days": 5,
+      "181_to_365_days": 4,
+      ">365_days": 0
+    }
+  },
+  "MEDICAL_EXAM -> FORENSIC_REPORT": {
+    "sample_count": 768,
+    "mean_days": 49.2,
+    "std_days": 31.1,
+    "median_days": 41.0,
+    "p25_days": 35.0,
+    "p75_days": 48.0,
+    "iqr_days": 13.0,
+    "p90_days": 79.0,
+    "p95_days": 135.6,
+    "min_days": 3.0,
+    "max_days": 183.0,
+    "statutory_compliance": {
+      "within_24h_pct": 0.0
+    },
+    "delay_buckets": {
+      "<14_days": 8,
+      "14_to_30_days": 100,
+      "31_to_60_days": 576,
+      "61_to_90_days": 9,
+      "91_to_180_days": 73,
+      "181_to_365_days": 2,
+      ">365_days": 0
+    }
+  },
+  "MEDICAL_EXAM -> MEDICAL_EXAM": {
+    "sample_count": 109,
+    "mean_days": 5.0,
+    "std_days": 16.6,
+    "median_days": 1.0,
+    "p25_days": 0.0,
+    "p75_days": 4.0,
+    "iqr_days": 4.0,
+    "p90_days": 10.4,
+    "p95_days": 14.0,
+    "min_days": 0.0,
+    "max_days": 169.0,
+    "statutory_compliance": {
+      "within_24h_pct": 50.5
+    },
+    "delay_buckets": {
+      "<14_days": 101,
+      "14_to_30_days": 7,
+      "31_to_60_days": 0,
+      "61_to_90_days": 0,
+      "91_to_180_days": 1,
+      "181_to_365_days": 0,
+      ">365_days": 0
+    }
+  }
+}

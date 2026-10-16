@@ -1,0 +1,102 @@
+{
+  "total_cases_reconstructed": 5125,
+  "unique_journey_variants": 305,
+  "start_activities_pct": {
+    "FIR_REGISTERED": 62.05,
+    "MEDICAL_EXAM": 29.62,
+    "FORENSIC_REPORT": 5.4,
+    "CHARGESHEET_FILED": 2.15,
+    "COURT_VERDICT": 0.78
+  },
+  "exit_points_pct": {
+    "COURT_VERDICT": 27.24,
+    "CHARGESHEET_FILED": 24.2,
+    "FIR_REGISTERED": 20.76,
+    "FORENSIC_REPORT": 17.29,
+    "MEDICAL_EXAM": 10.52
+  },
+  "avg_case_duration_days": 139.6,
+  "median_case_duration_days": 52.0,
+  "top_variants": [
+    {
+      "trace": "FIR_REGISTERED",
+      "case_count": 774,
+      "avg_duration_days": 0.0,
+      "median_duration_days": 0.0,
+      "path_length": 1,
+      "share_pct": 15.1
+    },
+    {
+      "trace": "FIR_REGISTERED -> MEDICAL_EXAM",
+      "case_count": 268,
+      "avg_duration_days": 6.4,
+      "median_duration_days": 1.0,
+      "path_length": 2,
+      "share_pct": 5.23
+    },
+    {
+      "trace": "FIR_REGISTERED -> CHARGESHEET_FILED -> COURT_VERDICT",
+      "case_count": 262,
+      "avg_duration_days": 380.2,
+      "median_duration_days": 345.0,
+      "path_length": 3,
+      "share_pct": 5.11
+    },
+    {
+      "trace": "FORENSIC_REPORT",
+      "case_count": 251,
+      "avg_duration_days": 0.0,
+      "median_duration_days": 0.0,
+      "path_length": 1,
+      "share_pct": 4.9
+    },
+    {
+      "trace": "MEDICAL_EXAM -> FIR_REGISTERED",
+      "case_count": 241,
+      "avg_duration_days": 7.4,
+      "median_duration_days": 2.0,
+      "path_length": 2,
+      "share_pct": 4.7
+    },
+    {
+      "trace": "MEDICAL_EXAM",
+      "case_count": 240,
+      "avg_duration_days": 0.0,
+      "median_duration_days": 0.0,
+      "path_length": 1,
+      "share_pct": 4.68
+    },
+    {
+      "trace": "FIR_REGISTERED -> CHARGESHEET_FILED",
+      "case_count": 240,
+      "avg_duration_days": 71.3,
+      "median_duration_days": 70.0,
+      "path_length": 2,
+      "share_pct": 4.68
+    },
+    {
+      "trace": "FIR_REGISTERED -> MEDICAL_EXAM -> FORENSIC_REPORT",
+      "case_count": 208,
+      "avg_duration_days": 51.8,
+      "median_duration_days": 43.0,
+      "path_length": 3,
+      "share_pct": 4.06
+    },
+    {
+      "trace": "FIR_REGISTERED -> MEDICAL_EXAM -> CHARGESHEET_FILED -> COURT_VERDICT",
+      "case_count": 185,
+      "avg_duration_days": 396.8,
+      "median_duration_days": 364.0,
+      "path_length": 4,
+      "share_pct": 3.61
+    },
+    {
+      "trace": "FIR_REGISTERED -> MEDICAL_EXAM -> FORENSIC_REPORT -> CHARGESHEET_FILED",
+      "case_count": 177,
+      "avg_duration_days": 117.8,
+      "median_duration_days": 110.0,
+      "path_length": 4,
+      "share_pct": 3.45
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+{
+  "pipeline_health": {
+    "total_reconstructed_cases": 5125,
+    "cases_initiating_fir": 4347,
+    "cases_reaching_verdict": 1397,
+    "overall_conviction_reach_rate_pct": 32.14
+  },
+  "systemic_leak_points_detected": [
+    {
+      "district": "D3_Rudrapur",
+      "leak_code": "LP-01-FORENSIC-DELAY",
+      "title": "Severe Forensic Lab Turnaround Delay",
+      "delay_days": 137.5,
+      "baseline_days": 43.0,
+      "multiplier": 3.19,
+      "affected_cases": 201
+    },
+    {
+      "district": "D6_Shivgarh",
+      "leak_code": "LP-02-POLICE-ATTRITION",
+      "title": "Excessive FIR-to-Chargesheet Drop-off",
+      "chargesheet_rate_pct": 27.8,
+      "state_benchmark_pct": 59.0,
+      "drop_off_leak_pct": 72.2,
+      "affected_firs": 392
+    },
+    {
+      "district": "D7_Anandpur",
+      "leak_code": "LP-03-COURT-DELAY",
+      "title": "Severe Judicial Trial Adjudication Delay",
+      "trial_delay_days": 612.9,
+      "baseline_days": 288.0,
+      "multiplier": 2.14,
+      "cases_in_trial": 180
+    }
+  ],
+  "district_vulnerability_ranking": [
+    {
+      "district": "D6_Shivgarh",
+      "score": 56.5,
+      "status": "CRITICAL"
+    },
+    {
+      "district": "D7_Anandpur",
+      "score": 36.6,
+      "status": "CRITICAL"
+    },
+    {
+      "district": "D3_Rudrapur",
+      "score": 34.0,
+      "status": "CRITICAL"
+    },
+    {
+      "district": "D4_Kalyanpur",
+      "score": 5.3,
+      "status": "NORMAL"
+    },
+    {
+      "district": "D2_Chandranagar",
+      "score": 4.4,
+      "status": "NORMAL"
+    },
+    {
+      "district": "D5_Mayaganj",
+      "score": 3.4,
+      "status": "NORMAL"
+    },
+    {
+      "district": "D8_Devkalan",
+      "score": 2.5,
+      "status": "NORMAL"
+    },
+    {
+      "district": "D1_Suryapur",
+      "score": 2.0,
+      "status": "NORMAL"
+    }
+  ],
+  "key_bottlenecks": {
+    "CHARGESHEET_FILED -> COURT_VERDICT": {
+      "median_days": 284.0,
+      "p90_days": 560.0,
+      "compliance": {
+        "within_60_days_pct": 0.2
+      }
+    },
+    "CHARGESHEET_FILED -> FORENSIC_REPORT": {
+      "median_days": 19.5,
+      "p90_days": 101.9,
+      "compliance": {
+        "within_60_days_pct": 70.8
+      }
+    },
+    "COURT_VERDICT -> COURT_VERDICT": {
+      "median_days": 51.5,
+      "p90_days": 138.5,
+      "compliance": {}
+    },
+    "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)": {
+      "median_days": 86.0,
+      "p90_days": 139.0,
+      "compliance": {
+        "within_60_days_pct": 21.0
+      }
+    },
+    "FIR_REGISTERED -> COURT_VERDICT": {
+      "median_days": 379.0,
+      "p90_days": 626.8,
+      "compliance": {}
+    },
+    "FIR_REGISTERED -> COURT_VERDICT (E2E)": {
+      "median_days": 378.0,
+      "p90_days": 631.6,
+      "compliance": {}
+    },
+    "FIR_REGISTERED -> FORENSIC_REPORT": {
+      "median_days": 42.0,
+      "p90_days": 115.0,
+      "compliance": {
+        "within_30_days_pct": 13.2
+      }
+    },
+    "FORENSIC_REPORT -> CHARGESHEET_FILED": {
+      "median_days": 63.0,
+      "p90_days": 90.0,
+      "compliance": {
+        "within_60_days_pct": 45.5
+      }
+    },
+    "FORENSIC_REPORT -> COURT_VERDICT": {
+      "median_days": 300.0,
+      "p90_days": 412.2,
+      "compliance": {
+        "within_30_days_pct": 0.0
+      }
+    },
+    "FORENSIC_REPORT -> FIR_REGISTERED": {
+      "median_days": 53.0,
+      "p90_days": 144.9,
+      "compliance": {
+        "within_30_days_pct": 25.0
+      }
+    },
+    "FORENSIC_REPORT -> FORENSIC_REPORT": {
+      "median_days": 9.0,
+      "p90_days": 25.0,
+      "compliance": {
+        "within_30_days_pct": 93.1
+      }
+    },
+    "FORENSIC_REPORT -> MEDICAL_EXAM": {
+      "median_days": 27.0,
+      "p90_days": 68.6,
+      "compliance": {
+        "within_24h_pct": 0.0
+      }
+    },
+    "MEDICAL_EXAM -> COURT_VERDICT": {
+      "median_days": 297.0,
+      "p90_days": 358.0,
+      "compliance": {
+        "within_24h_pct": 0.0
+      }
+    },
+    "MEDICAL_EXAM -> FORENSIC_REPORT": {
+      "median_days": 41.0,
+      "p90_days": 79.0,
+      "compliance": {
+        "within_24h_pct": 0.0
+      }
+    }
+  },
+  "duckdb_olap_transitions": [
+    {
+      "transition": "FIR_REGISTERED -> MEDICAL_EXAM",
+      "transition_count": 1547,
+      "avg_duration_days": 3.3,
+      "median_duration_days": 1.0
+    },
+    {
+      "transition": "MEDICAL_EXAM -> FIR_REGISTERED",
+      "transition_count": 1324,
+      "avg_duration_days": 4.7,
+      "median_duration_days": 2.0
+    },
+    {
+      "transition": "CHARGESHEET_FILED -> COURT_VERDICT",
+      "transition_count": 1291,
+      "avg_duration_days": 320.6,
+      "median_duration_days": 284.0
+    },
+    {
+      "transition": "FORENSIC_REPORT -> CHARGESHEET_FILED",
+      "transition_count": 1141,
+      "avg_duration_days": 61.9,
+      "median_duration_days": 63.0
+    }
+  ]
+}

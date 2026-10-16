@@ -1,0 +1,125 @@
+{
+  "total_cases": 5125,
+  "total_events": 14384,
+  "avg_duration_days": 139.6,
+  "median_duration_days": 52.0,
+  "start_activities_pct": {
+    "FIR_REGISTERED": 62.05,
+    "MEDICAL_EXAM": 29.62,
+    "FORENSIC_REPORT": 5.4,
+    "CHARGESHEET_FILED": 2.15,
+    "COURT_VERDICT": 0.78
+  },
+  "exit_points_pct": {
+    "COURT_VERDICT": 27.24,
+    "CHARGESHEET_FILED": 24.2,
+    "FIR_REGISTERED": 20.76,
+    "FORENSIC_REPORT": 17.29,
+    "MEDICAL_EXAM": 10.52
+  },
+  "top_variants": [
+    {
+      "trace": "FIR_REGISTERED",
+      "case_count": 774,
+      "avg_duration_days": 0.0,
+      "median_duration_days": 0.0,
+      "path_length": 1,
+      "share_pct": 15.1
+    },
+    {
+      "trace": "FIR_REGISTERED -> MEDICAL_EXAM",
+      "case_count": 268,
+      "avg_duration_days": 6.4,
+      "median_duration_days": 1.0,
+      "path_length": 2,
+      "share_pct": 5.23
+    },
+    {
+      "trace": "FIR_REGISTERED -> CHARGESHEET_FILED -> COURT_VERDICT",
+      "case_count": 262,
+      "avg_duration_days": 380.2,
+      "median_duration_days": 345.0,
+      "path_length": 3,
+      "share_pct": 5.11
+    },
+    {
+      "trace": "FORENSIC_REPORT",
+      "case_count": 251,
+      "avg_duration_days": 0.0,
+      "median_duration_days": 0.0,
+      "path_length": 1,
+      "share_pct": 4.9
+    },
+    {
+      "trace": "MEDICAL_EXAM -> FIR_REGISTERED",
+      "case_count": 241,
+      "avg_duration_days": 7.4,
+      "median_duration_days": 2.0,
+      "path_length": 2,
+      "share_pct": 4.7
+    }
+  ],
+  "top_transitions": [
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "MEDICAL_EXAM",
+      "transition_count": 1547,
+      "avg_duration_days": 3.3,
+      "median_duration_days": 1.0,
+      "p90_duration_days": 4.0,
+      "min_duration_days": 0,
+      "max_duration_days": 237
+    },
+    {
+      "from_activity": "MEDICAL_EXAM",
+      "to_activity": "FIR_REGISTERED",
+      "transition_count": 1324,
+      "avg_duration_days": 4.7,
+      "median_duration_days": 2.0,
+      "p90_duration_days": 6.0,
+      "min_duration_days": 1,
+      "max_duration_days": 293
+    },
+    {
+      "from_activity": "CHARGESHEET_FILED",
+      "to_activity": "COURT_VERDICT",
+      "transition_count": 1291,
+      "avg_duration_days": 320.6,
+      "median_duration_days": 284.0,
+      "p90_duration_days": 560.0,
+      "min_duration_days": 41,
+      "max_duration_days": 853
+    },
+    {
+      "from_activity": "FORENSIC_REPORT",
+      "to_activity": "CHARGESHEET_FILED",
+      "transition_count": 1141,
+      "avg_duration_days": 61.9,
+      "median_duration_days": 63.0,
+      "p90_duration_days": 90.0,
+      "min_duration_days": 0,
+      "max_duration_days": 133
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "FORENSIC_REPORT",
+      "transition_count": 992,
+      "avg_duration_days": 51.8,
+      "median_duration_days": 42.0,
+      "p90_duration_days": 115.0,
+      "min_duration_days": 5,
+      "max_duration_days": 343
+    },
+    {
+      "from_activity": "FIR_REGISTERED",
+      "to_activity": "CHARGESHEET_FILED",
+      "transition_count": 905,
+      "avg_duration_days": 68.9,
+      "median_duration_days": 68.0,
+      "p90_duration_days": 98.0,
+      "min_duration_days": 3,
+      "max_duration_days": 260
+    }
+  ],
+  "pm4py_transitions_count": 22
+}

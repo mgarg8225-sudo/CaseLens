@@ -23,6 +23,7 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 import numpy as np
+import pm4py
 
 # Activity and stage order definitions
 ACTIVITY_MAP = {
@@ -250,13 +251,65 @@ def compute_directly_follows_graph(df_events: pd.DataFrame) -> Tuple[pd.DataFram
     return dfg_agg, summary
 
 
+def discover_pm4py_dfg(df_events: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Leverages PM4Py process mining engine to discover Directly-Follows Graph (DFG)
+    and empirical transition duration performance metrics.
+    """
+    df_pm = pm4py.format_dataframe(
+        df_events.copy(),
+        case_id="case_id",
+        activity_key="activity",
+        timestamp_key="timestamp"
+    )
+
+    # PM4Py Frequency DFG
+    freq_dfg, start_acts, end_acts = pm4py.discover_dfg(df_pm)
+
+    # PM4Py Performance DFG (durations)
+    perf_dfg, _, _ = pm4py.discover_performance_dfg(df_pm)
+
+    freq_transitions = [
+        {"from_activity": str(k[0]), "to_activity": str(k[1]), "frequency": int(v)}
+        for k, v in freq_dfg.items()
+    ]
+    freq_transitions = sorted(freq_transitions, key=lambda x: x["frequency"], reverse=True)
+
+    perf_transitions = []
+    for k, v in perf_dfg.items():
+        if isinstance(v, dict):
+            mean_days = round(float(v.get("mean", 0.0)) / 86400.0, 1)
+            median_days = round(float(v.get("median", 0.0)) / 86400.0, 1)
+            max_days = round(float(v.get("max", 0.0)) / 86400.0, 1)
+        else:
+            mean_days = round(float(v) / 86400.0, 1)
+            median_days = mean_days
+            max_days = mean_days
+
+        perf_transitions.append({
+            "from_activity": str(k[0]),
+            "to_activity": str(k[1]),
+            "mean_days": mean_days,
+            "median_days": median_days,
+            "max_days": max_days
+        })
+    perf_transitions = sorted(perf_transitions, key=lambda x: x["mean_days"], reverse=True)
+
+    return {
+        "start_activities": {str(k): int(v) for k, v in start_acts.items()},
+        "end_activities": {str(k): int(v) for k, v in end_acts.items()},
+        "frequency_dfg": freq_transitions,
+        "performance_dfg": perf_transitions
+    }
+
+
 def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
     """
     Executes complete Case Journey Reconstruction and Process Mining pipeline:
     1. Builds chronological event log from linked entities.
     2. Discovers process variants and throughput times.
-    3. Computes performance DFG transition matrix.
-    4. Saves event_log.csv, journey_dfg.json, journey_variants.json, and journey_metrics.json.
+    3. Computes performance DFG transition matrix (both Pandas and PM4Py).
+    4. Saves event_log.csv, journey_dfg.json, journey_variants.json, journey_pm4py.json, and journey_metrics.json.
     """
     print("Constructing process mining event log from reconstructed case entities...")
     df_events = build_event_log(data_dir=data_dir)
@@ -277,6 +330,10 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
     print("\nComputing Directly-Follows Graph (DFG) and transition durations...")
     df_dfg, dfg_metrics = compute_directly_follows_graph(df_events)
 
+    # Compute PM4Py DFG
+    print("\nExecuting PM4Py process mining discovery...")
+    pm4py_metrics = discover_pm4py_dfg(df_events)
+
     # Save outputs
     variants_path = os.path.join(data_dir, "journey_variants.json")
     with open(variants_path, "w") as f:
@@ -285,6 +342,11 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
     dfg_path = os.path.join(data_dir, "journey_dfg.json")
     with open(dfg_path, "w") as f:
         json.dump(dfg_metrics, f, indent=2)
+
+    pm4py_path = os.path.join(data_dir, "journey_pm4py.json")
+    with open(pm4py_path, "w") as f:
+        json.dump(pm4py_metrics, f, indent=2)
+    print(f"Saved PM4Py process mining metrics to: {pm4py_path}")
 
     # Overall Journey Summary
     journey_summary = {
@@ -295,7 +357,8 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
         "start_activities_pct": variant_metrics["start_activities_pct"],
         "exit_points_pct": variant_metrics["exit_points_pct"],
         "top_variants": variant_metrics["top_variants"][:5],
-        "top_transitions": df_dfg.head(6).to_dict(orient="records") if not df_dfg.empty else []
+        "top_transitions": df_dfg.head(6).to_dict(orient="records") if not df_dfg.empty else [],
+        "pm4py_transitions_count": len(pm4py_metrics["frequency_dfg"])
     }
 
     metrics_path = os.path.join(data_dir, "journey_metrics.json")
