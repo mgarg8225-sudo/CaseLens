@@ -1,0 +1,276 @@
+{
+  "privacy_mechanism": "Laplace Differential Privacy + Small-Cell k-Anonymity Suppression",
+  "epsilon_per_stage": 0.25,
+  "k_suppression_threshold": 5,
+  "theoretical_95pct_error_margin": 12.0,
+  "funnel_stages": [
+    {
+      "stage_id": "FIR_REGISTERED",
+      "stage_name": "1. Police FIR",
+      "raw_case_count": 4347,
+      "noisy_case_count": 4350,
+      "confidence_margin_95": 12.0,
+      "dp_retention_pct": 100.0,
+      "dp_conversion_pct": 100.0,
+      "is_k_anonymity_suppressed": false
+    },
+    {
+      "stage_id": "MEDICAL_EXAM",
+      "stage_name": "2. Hospital MLC",
+      "raw_case_count": 2956,
+      "noisy_case_count": 2955,
+      "confidence_margin_95": 12.0,
+      "dp_retention_pct": 67.93,
+      "dp_conversion_pct": 67.93,
+      "is_k_anonymity_suppressed": false
+    },
+    {
+      "stage_id": "FORENSIC_REPORT",
+      "stage_name": "3. Forensic Lab (FSL)",
+      "raw_case_count": 2075,
+      "noisy_case_count": 2080,
+      "confidence_margin_95": 12.0,
+      "dp_retention_pct": 47.82,
+      "dp_conversion_pct": 70.39,
+      "is_k_anonymity_suppressed": false
+    },
+    {
+      "stage_id": "CHARGESHEET_FILED",
+      "stage_name": "4. Prosecution Chargesheet",
+      "raw_case_count": 2566,
+      "noisy_case_count": 2568,
+      "confidence_margin_95": 12.0,
+      "dp_retention_pct": 59.03,
+      "dp_conversion_pct": 123.46,
+      "is_k_anonymity_suppressed": false
+    },
+    {
+      "stage_id": "COURT_VERDICT",
+      "stage_name": "5. Court Verdict",
+      "raw_case_count": 1397,
+      "noisy_case_count": 1390,
+      "confidence_margin_95": 12.0,
+      "dp_retention_pct": 31.95,
+      "dp_conversion_pct": 54.13,
+      "is_k_anonymity_suppressed": false
+    }
+  ],
+  "district_funnels": {
+    "D1_Suryapur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 591,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 369,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 276,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 325,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 192,
+        "is_suppressed": false
+      }
+    ],
+    "D2_Chandranagar": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 565,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 422,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 273,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 376,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 194,
+        "is_suppressed": false
+      }
+    ],
+    "D3_Rudrapur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 490,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 348,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 210,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 351,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 190,
+        "is_suppressed": false
+      }
+    ],
+    "D4_Kalyanpur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 571,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 387,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 311,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 370,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 182,
+        "is_suppressed": false
+      }
+    ],
+    "D5_Mayaganj": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 563,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 387,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 229,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 345,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 206,
+        "is_suppressed": false
+      }
+    ],
+    "D6_Shivgarh": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 554,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 430,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 255,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 146,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 83,
+        "is_suppressed": false
+      }
+    ],
+    "D7_Anandpur": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 524,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 338,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 254,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 327,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 194,
+        "is_suppressed": false
+      }
+    ],
+    "D8_Devkalan": [
+      {
+        "stage_id": "FIR_REGISTERED",
+        "case_count": 509,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "MEDICAL_EXAM",
+        "case_count": 353,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "FORENSIC_REPORT",
+        "case_count": 259,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "CHARGESHEET_FILED",
+        "case_count": 318,
+        "is_suppressed": false
+      },
+      {
+        "stage_id": "COURT_VERDICT",
+        "case_count": 200,
+        "is_suppressed": false
+      }
+    ]
+  }
+}

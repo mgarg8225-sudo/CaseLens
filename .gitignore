@@ -6,3 +6,6 @@ tests/test_data/
 *.duckdb
 .coverage
 htmlcov/
+.env
+.env.*
+

@@ -1,0 +1,153 @@
+{
+  "audit_timestamp": "2026-10-17T10:01:28.939075+00:00",
+  "privacy_budget_summary": {
+    "total_epsilon_allocated": 10.0,
+    "spent_epsilon": 7.55,
+    "remaining_epsilon": 2.45,
+    "composition_theorem": "Sequential Composition (sum(epsilon_i) <= total_epsilon)",
+    "budget_ledger_entries": 54
+  },
+  "k_anonymity_evaluation": {
+    "broad_demographic_qis": {
+      "k_target": 5,
+      "min_observed_k": 63,
+      "median_observed_k": 110.5,
+      "total_records": 5125,
+      "total_equivalence_classes": 48,
+      "violating_classes_count": 0,
+      "violating_records_count": 0,
+      "violating_records_pct": 0.0,
+      "is_compliant": true,
+      "high_risk_classes_sample": []
+    },
+    "granular_spatiotemporal_qis": {
+      "k_target": 5,
+      "min_observed_k": 1,
+      "median_observed_k": 5.0,
+      "total_records": 5125,
+      "total_equivalence_classes": 1003,
+      "violating_classes_count": 434,
+      "violating_records_count": 1238,
+      "violating_records_pct": 24.16,
+      "is_compliant": false,
+      "high_risk_classes_sample": [
+        {
+          "district": "D1_Suryapur",
+          "case_category": "general_violence",
+          "month": "2023-07",
+          "class_size": 1
+        },
+        {
+          "district": "D8_Devkalan",
+          "case_category": "general_violence",
+          "month": "2024-12",
+          "class_size": 1
+        },
+        {
+          "district": "D8_Devkalan",
+          "case_category": "general_violence",
+          "month": "2025-09",
+          "class_size": 1
+        },
+        {
+          "district": "D8_Devkalan",
+          "case_category": "general_violence",
+          "month": "2025-01",
+          "class_size": 1
+        },
+        {
+          "district": "D1_Suryapur",
+          "case_category": "general_violence",
+          "month": "2025-09",
+          "class_size": 1
+        }
+      ]
+    },
+    "small_cell_suppression_audit": {
+      "k_threshold": 5,
+      "initial_rows": 5125,
+      "retained_rows": 3887,
+      "suppressed_rows": 1238,
+      "suppression_rate_pct": 24.16
+    }
+  },
+  "l_diversity_evaluation": {
+    "l_target": 2,
+    "sensitive_column": "terminal_stage",
+    "min_observed_l": 3,
+    "total_equivalence_classes": 48,
+    "violating_classes_count": 0,
+    "violating_classes_pct": 0.0,
+    "is_compliant": true,
+    "violating_sample": []
+  },
+  "t_closeness_evaluation": {
+    "t_target": 0.25,
+    "sensitive_column": "terminal_stage",
+    "max_observed_tvd": 0.7113,
+    "total_equivalence_classes": 48,
+    "violating_classes_count": 18,
+    "violating_classes_pct": 37.5,
+    "is_compliant": false
+  },
+  "adversarial_threat_evaluations": {
+    "singling_out_marksmanship_attack": {
+      "before_protection": {
+        "quasi_identifiers": [
+          "district",
+          "case_category",
+          "month"
+        ],
+        "total_records": 5125,
+        "unique_records_count": 73,
+        "singling_out_risk_pct": 1.42,
+        "max_prosecutor_risk_pct": 100.0,
+        "avg_journalist_risk_pct": 19.57,
+        "risk_classification": "MODERATE"
+      },
+      "after_k_anonymity_protection": {
+        "quasi_identifiers": [
+          "district",
+          "case_category",
+          "month"
+        ],
+        "total_records": 3887,
+        "unique_records_count": 0,
+        "singling_out_risk_pct": 0.0,
+        "max_prosecutor_risk_pct": 20.0,
+        "avg_journalist_risk_pct": 14.64,
+        "risk_classification": "LOW"
+      }
+    },
+    "differencing_attack_simulation": {
+      "target_case_id": "ENT-00001",
+      "query_filter": {
+        "district": "D1_Suryapur",
+        "case_category": "trafficking",
+        "month": "2023-10"
+      },
+      "target_in_query_cohort": true,
+      "raw_counts": {
+        "dataset_with_target_q1": 7,
+        "dataset_without_target_q2": 6,
+        "raw_difference": 1,
+        "raw_leakage_status": "VULNERABLE (Leaks Exact Identity Delta)"
+      },
+      "differential_privacy": {
+        "epsilon": 1.0,
+        "dp_noisy_q1": 8,
+        "dp_noisy_q2": 6,
+        "dp_difference": 2,
+        "protection_active": true,
+        "attack_foiled": true,
+        "plausible_deniability": "GUARANTEED (Mathematical Laplace Noise Mask)"
+      }
+    }
+  },
+  "differential_privacy_mechanisms": {
+    "funnel_laplace_scale": 4.0,
+    "funnel_95pct_confidence_margin": 12.0,
+    "district_laplace_scale": 2.0,
+    "zero_pii_compliance": true
+  }
+}

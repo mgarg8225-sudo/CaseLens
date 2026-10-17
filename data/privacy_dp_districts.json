@@ -1,0 +1,76 @@
+{
+  "privacy_mechanism": "Laplace Differential Privacy (District Aggregates)",
+  "epsilon": 0.35,
+  "k_threshold": 5,
+  "districts": {
+    "D1_Suryapur": {
+      "raw_cases": 632,
+      "noisy_cases": 634,
+      "vulnerability_score": 2.0,
+      "status": "NORMAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D2_Chandranagar": {
+      "raw_cases": 672,
+      "noisy_cases": 672,
+      "vulnerability_score": 4.4,
+      "status": "NORMAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D3_Rudrapur": {
+      "raw_cases": 592,
+      "noisy_cases": 596,
+      "vulnerability_score": 34.0,
+      "status": "CRITICAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D4_Kalyanpur": {
+      "raw_cases": 657,
+      "noisy_cases": 658,
+      "vulnerability_score": 5.3,
+      "status": "NORMAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D5_Mayaganj": {
+      "raw_cases": 699,
+      "noisy_cases": 694,
+      "vulnerability_score": 3.4,
+      "status": "NORMAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D6_Shivgarh": {
+      "raw_cases": 642,
+      "noisy_cases": 651,
+      "vulnerability_score": 56.5,
+      "status": "CRITICAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D7_Anandpur": {
+      "raw_cases": 635,
+      "noisy_cases": 637,
+      "vulnerability_score": 36.6,
+      "status": "CRITICAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    },
+    "D8_Devkalan": {
+      "raw_cases": 596,
+      "noisy_cases": 598,
+      "vulnerability_score": 2.5,
+      "status": "NORMAL",
+      "primary_policy_leak": "None",
+      "confidence_margin_95": 8.6
+    }
+  },
+  "state_benchmarks": {
+    "fir_to_chargesheet_rate_pct": 59.0,
+    "forensic_median_days": 43.0,
+    "trial_median_days": 288.0
+  }
+}
