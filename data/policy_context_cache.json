@@ -1,0 +1,170 @@
+{
+  "forensic_report_delay": {
+    "leak_point_label": "Forensic Lab Turnaround Delay",
+    "leak_code": "LP-01-FORENSIC-DELAY",
+    "finding": "Forensic turnaround in District 3 (Rudrapur) averages 137.5 days vs state median baseline of 43.0 days (3.19x multiplier), delaying chargesheet filing.",
+    "suggested_intervention": "Establish dedicated fast-track POCSO forensic desks and standardized chain-of-custody tracking to meet statutory 60-day filing mandates.",
+    "query_used": "India forensic science laboratory turnaround delay backlog policy guidelines POCSO CrPC",
+    "retrieved_at": "2026-10-17T10:18:48.093506+00:00",
+    "sources": [
+      {
+        "title": "Scientific Justice Delayed: A Critical Assessment ...",
+        "source_domain": "ijlmh.com",
+        "url": "https://ijlmh.com/article/view/scientific-justice-delayed-a-critical-assessment-of-forensic-infrastructure-readiness-for-the-bnss-paradigm-shift-in-criminal-investigation",
+        "summary": "Background The criminal justice system in India has traditionally relied upon the oral examination of witnesses and upon custodial confessions as the principal means of proving guilt. This confession-centric paradigm has long been...",
+        "retrieved_at": "2026-10-17T10:18:48.093506+00:00"
+      },
+      {
+        "title": "View of Strengthening Forensic Infrastructure in India",
+        "source_domain": "www.ignited.in",
+        "url": "https://www.ignited.in/index.php/jasrae/article/view/16162/31653",
+        "summary": "Return to Article Details Strengthening Forensic Infrastructure in India: An Analytical Study of Institutional Deficits and Legal Challenges",
+        "retrieved_at": "2026-10-17T10:18:48.093506+00:00"
+      },
+      {
+        "title": "Forensic Reporting Time Standards - Criminal Justice",
+        "source_domain": "www.scribd.com",
+        "url": "https://www.scribd.com/document/832054775/Turnaround-Time",
+        "summary": "The document outlines standard turnaround times for reporting forensic cases at Central Forensic Sciences Laboratories in India, emphasizing the importance ...",
+        "retrieved_at": "2026-10-17T10:18:48.093506+00:00"
+      }
+    ]
+  },
+  "fir_to_chargesheet_drop_off": {
+    "leak_point_label": "FIR to Chargesheet Drop-off (Police Attrition)",
+    "leak_code": "LP-02-POLICE-ATTRITION",
+    "finding": "In District 6 (Shivgarh), 72.2% of registered FIRs drop out before chargesheeting (only 27.8% conversion rate vs 59.0% state benchmark).",
+    "suggested_intervention": "Enforce mandatory Section 164 CrPC/183 BNSS survivor statement recording within 72 hours and supervisory case tracking on uncharged FIRs.",
+    "query_used": "India police FIR to chargesheet drop off rate attrition investigation statutory timeline 60 days",
+    "retrieved_at": "2026-10-17T10:18:53.945338+00:00",
+    "sources": [
+      {
+        "title": "Most people confuse FIR and chargesheet\u2014but they serve ...",
+        "source_domain": "www.facebook.com",
+        "url": "https://www.facebook.com/allindiareporter/posts/most-people-confuse-fir-and-chargesheetbut-they-serve-completely-different-roles/1391746752995510/",
+        "summary": "Justice is not a favour. What does Ex Debito Justitiae mean?",
+        "retrieved_at": "2026-10-17T10:18:53.945338+00:00"
+      },
+      {
+        "title": "Why Police Must File Chargesheet Within 90 Days in India.",
+        "source_domain": "www.vidhikarya.com",
+        "url": "https://www.vidhikarya.com/legal-blog/chargesheet-delay-beyond-90-days-india",
+        "summary": "Criminal Posted On : June 30, 2026 Rape, Murder, and Other Serious Offences: Why Chargesheet Must Be Filed Within 90 Days Written By : Biyas Banerjee Listen to this article Table of Contents In serious criminal cases, time is really...",
+        "retrieved_at": "2026-10-17T10:18:53.945338+00:00"
+      },
+      {
+        "title": "\ud83d\udccc\ud83d\uded1The FIR-to-Investigation process under the Bharatiya ...",
+        "source_domain": "www.facebook.com",
+        "url": "https://www.facebook.com/groups/1646134305700722/posts/4128751507438977/",
+        "summary": "Must be completed within 14 days. Police Investigation Begins (Section 175 BNSS) Once FIR is registered: Police officer proceeds to: Visit ...",
+        "retrieved_at": "2026-10-17T10:18:53.945338+00:00"
+      }
+    ]
+  },
+  "court_trial_delay": {
+    "leak_point_label": "Court Trial Adjudication Pendency",
+    "leak_code": "LP-03-COURT-DELAY",
+    "finding": "District 7 (Anandpur) trial duration averages 612.9 days median (2.14x state baseline of 288.0 days), leading to witness attrition and trial fatigue.",
+    "suggested_intervention": "Operationalize dedicated Fast Track Special Courts (FTSCs) with continuous day-to-day trial scheduling for vulnerable witness testimonies.",
+    "query_used": "India court trial delay pendency POCSO fast track special courts disposal timeline",
+    "retrieved_at": "2026-10-17T10:18:58.117602+00:00",
+    "sources": [
+      {
+        "title": "The Impact of Fast Track Special Courts",
+        "source_domain": "www.pib.gov.in",
+        "url": "https://www.pib.gov.in/PressReleasePage.aspx?PRID=2113344",
+        "summary": "Ministry of Law and Justice Swift Justice, Safer Society: The Impact of Fast Track Special Courts Posted On: 20 MAR 2025 6:43PM by PIB Delhi \u201cJustice delayed is justice denied\u201d | | | --- | | Fast Track Special Courts (FTSCs) play a crucial...",
+        "retrieved_at": "2026-10-17T10:18:58.117602+00:00"
+      },
+      {
+        "title": "This is how so called 'Fast Track Courts' work under Modi. ...",
+        "source_domain": "www.facebook.com",
+        "url": "https://www.facebook.com/MumCongress/posts/this-is-how-so-called-fast-track-courts-work-under-modifasttrackcourt-india-delh/1552268036933415/",
+        "summary": "\ud83d\udccd \u092e\u0941\u0902\u092c\u0908 | \u0938\u093e\u092f\u0928 \u092c\u094d\u0930\u093f\u091c \u0924\u093e\u0930\u0940\u0916\u093c \u092a\u0947 \u0924\u093e\u0930\u0940\u0916\u093c, \u0924\u093e\u0930\u0940\u0916\u093c \u092a\u0947 \u0924\u093e\u0930\u0940\u0916\u093c\u2026 \u0906\u0916\u093f\u0930 \u0915\u092c \u0924\u0915? \u0938\u093e\u092f\u0928 \u092c\u094d\u0930\u093f\u091c \u0916\u094b\u0932\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f \u0905\u092c \u0924\u0915 \u091a\u093e\u0930 \u0905\u0932\u0917-\u0905\u0932\u0917 \u0924\u093e\u0930\u0940\u0916\u093c\u0947\u0902 \u0926\u0940 \u091c\u093e \u091a\u0941\u0915\u0940 \u0939\u0948\u0902, \u0932\u0947\u0915\u093f\u0928 \u092a\u0941\u0932 \u0906\u091c \u092d\u0940 \u092e\u0941\u0902\u092c\u0908\u0915\u0930\u094b\u0902 \u0915\u0947 \u0932\u093f\u090f \u092c\u0902\u0926 \u0939\u0948\u0964 \u092e\u0941\u0902\u092c\u0908 \u0915\u093e\u0902\u0917\u094d\u0930\u0947\u0938 \u0905\u0927\u094d\u092f\u0915\u094d\u0937\u093e \u0935 \u0938\u093e\u0902\u0938\u0926 \u092a\u094d\u0930\u093e.",
+        "retrieved_at": "2026-10-17T10:18:58.117602+00:00"
+      },
+      {
+        "title": "Fast Track Special Courts dispose 4,07661 cases in India",
+        "source_domain": "www.facebook.com",
+        "url": "https://www.facebook.com/MLJ.GovIndia/posts/780-fast-track-special-courts-including-400-exclusive-courts-dealing-with-pocso/1131874976042187/",
+        "summary": "Fast Track Special Courts \u30fb disposed of 6358 cases in July 2022, which led to the cumulative disposal of 1023 FTSCs the pendency of subject ...",
+        "retrieved_at": "2026-10-17T10:18:58.117602+00:00"
+      }
+    ]
+  },
+  "medical_exam_delay": {
+    "leak_point_label": "Medico-Legal Examination (MLC) Delay",
+    "leak_code": "LP-04-MEDICAL-EXAM-DELAY",
+    "finding": "36.9% of medico-legal examinations take longer than 24 hours from initial FIR registration, risking degradation of vital physical and forensic biological evidence.",
+    "suggested_intervention": "Mandate immediate One-Stop Centre (OSC/Sakhi) MLC triage protocols with automated hospital alert systems upon FIR entry.",
+    "query_used": "India medico legal care sexual assault survivor 24 hours statutory guideline Section 164A",
+    "retrieved_at": "2026-10-17T10:19:04.059907+00:00",
+    "sources": [
+      {
+        "title": "Guidelines for medico-legal care for victims of sexual violence",
+        "source_domain": "iris.who.int",
+        "url": "https://iris.who.int/bitstreams/67468e99-5b64-40d9-b68b-c0e55923f32e/download",
+        "summary": "Ideally, specimens should be collected within 24 hours of the assault; after 72 hours, yields are reduced considerably. \u25cb Handle appropriately.",
+        "retrieved_at": "2026-10-17T10:19:04.059907+00:00"
+      },
+      {
+        "title": "Kerala Medico-legal Protocol for Examination of Survivor of ...",
+        "source_domain": "arogyakeralam.gov.in",
+        "url": "https://arogyakeralam.gov.in/wp-content/uploads/2020/03/Kerala-Medico-legal-Protocol-for-Examination-of-Survivor-of-Sexual-Offences-2019-compressed.pdf",
+        "summary": "KERALA MEDICO-LEGAL PROTOCOL FOR EXAMINATION OF SURVIVOR OF SEXUAL OFFENCES 2019 GOVERNMENT OF KERALA 2019 O\ufb03ce of the State Mission Director (NHM) State Programme Monitoring & Support Unit General Hospital Jn. Thiruvananthapuram Phone:...",
+        "retrieved_at": "2026-10-17T10:19:04.059907+00:00"
+      },
+      {
+        "title": "FAQ Book__communication KIT",
+        "source_domain": "india.unfpa.org",
+        "url": "https://india.unfpa.org/sites/default/files/pub-pdf/faq_book_final_design.pdf",
+        "summary": "India issued Guidelines and Protocols for medico-legal care for 8 survivors/victims of sexual violence which addresses issues including medical examination, ...",
+        "retrieved_at": "2026-10-17T10:19:04.059907+00:00"
+      }
+    ]
+  },
+  "victim_compensation_delay": {
+    "leak_point_label": "Victim Compensation & Legal Aid Disbursal Lag",
+    "leak_code": "LP-05-VICTIM-COMPENSATION-DELAY",
+    "finding": "Multi-month delays in DLSA/NALSA victim interim compensation disbursement correlate with socio-economic vulnerability and trial drop-outs.",
+    "suggested_intervention": "Implement automated interim compensation order generation at chargesheeting stage via integrated court-DLSA digital portal.",
+    "query_used": "India survivor victim compensation scheme NALSA disbursal delay interim relief",
+    "retrieved_at": "2026-10-17T10:19:19.794667+00:00",
+    "sources": [
+      {
+        "title": "National Legal Services Authority",
+        "source_domain": "cdnbbsr.s3waas.gov.in",
+        "url": "https://cdnbbsr.s3waas.gov.in/s39b6309f409265da22b33fecebd858e04/uploads/2025/09/2025092097448693.pdf",
+        "summary": "NALSA\u2019s Compensation Scheme for Women Victims/Survivors of Sexual Assault/other Crimes - 2018 NALSA National Legal Services Authority 12/11, Jam Nagar House, Shahjahan Road, New Delhi Website: www.nalsa.gov.in e-mail: nalsa-dla@nic.in...",
+        "retrieved_at": "2026-10-17T10:19:19.794667+00:00"
+      },
+      {
+        "title": "Victim Compensation",
+        "source_domain": "nalsa.gov.in",
+        "url": "https://nalsa.gov.in/victim-compensation/",
+        "summary": "Victim Compensation | Title | View / Download | | --- | --- | | (Amended) NALSA\u2019s Compensation Scheme for Women Victims/Survivors of Sexual Assault/other Crimes \u2013 2018 | Accessible Version : View (472 KB) | | Order dated 5.9.2018 of...",
+        "retrieved_at": "2026-10-17T10:19:19.794667+00:00"
+      },
+      {
+        "title": "Victim Compensation in India: From Statutory Promise to ...",
+        "source_domain": "ijlmh.com",
+        "url": "https://ijlmh.com/article/view/victim-compensation-in-india-from-statutory-promise-to-institutional-failure",
+        "summary": "Victim compensation in India represents a significant yet inadequately realised promise of contemporary criminal justice reform.",
+        "retrieved_at": "2026-10-17T10:19:19.794667+00:00"
+      }
+    ]
+  },
+  "government_benchmark_fact": {
+    "title": "Statutory POCSO Act Section 35(2) Trial Timeline Mandate",
+    "source_url": "https://en.wikipedia.org/wiki/Protection_of_Children_from_Sexual_Offences_Act",
+    "source_domain": "wikipedia.org",
+    "fact": "The Special Court shall complete the trial, as far as possible, within a period of one year from the date of taking cognizance of the offence.",
+    "enactment_year": "The POCSO (Protection of Children from Sexual Offences) Act was enacted in **2012**. Key dates:\n- Passed by the Rajya Sabha: 10 May 2012\n- Passed by the Lok Sabha: 22 May 2012\n- Received Presidential assent: 19 June 2012\n- Officially commenced: 14 November 2012",
+    "statutory_reference": "Section 35(2), Protection of Children from Sexual Offences (POCSO) Act, 2012",
+    "extracted_via": "TinyFish Web Agent Automation",
+    "retrieved_at": "2026-10-17T10:19:24.251666+00:00",
+    "agent_extracted_result": {
+      "result": "The POCSO (Protection of Children from Sexual Offences) Act was enacted in **2012**. Key dates:\n- Passed by the Rajya Sabha: 10 May 2012\n- Passed by the Lok Sabha: 22 May 2012\n- Received Presidential assent: 19 June 2012\n- Officially commenced: 14 November 2012"
+    }
+  }
+}
