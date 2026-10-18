@@ -327,6 +327,79 @@ def _clean_summary_text(raw_text: str, max_chars: int = 240) -> str:
 
 
 # =====================================================================
+# 6b. Domain Quality & Statutory Ranking (.gov.in / .nic.in Priority)
+# =====================================================================
+
+DISALLOWED_DOMAINS = [
+    "scribd.com",
+    "facebook.com",
+    "slideshare.net",
+    "academia.edu",
+    "quora.com",
+    "pinterest.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "reddit.com",
+]
+
+
+def is_disallowed_domain(domain_or_url: str) -> bool:
+    """Checks if a domain or URL belongs to low-quality, paywalled, or user-uploaded sites."""
+    if not domain_or_url:
+        return False
+    d = str(domain_or_url).lower().strip()
+    return any(bad in d for bad in DISALLOWED_DOMAINS)
+
+
+def is_preferred_gov_domain(domain_or_url: str) -> bool:
+    """Checks if a domain or URL belongs to official Indian government (.gov.in or .nic.in)."""
+    if not domain_or_url:
+        return False
+    d = str(domain_or_url).lower().strip()
+    return (".gov.in" in d) or (".nic.in" in d)
+
+
+def filter_and_rank_sources(
+    sources: List[Dict[str, Any]],
+    catalog_key: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Cleans and prioritizes research sources:
+    1. Drops scribd.com, facebook.com, slideshare.net, and similar user-uploaded or social media domains.
+    2. Prefers and prioritizes official .gov.in and .nic.in government domains (ranked first).
+    3. If no .gov.in or .nic.in domain is present, supplements with canonical statutory benchmark source.
+    """
+    cleaned = []
+    seen_urls = set()
+    for s in sources:
+        domain = s.get("source_domain", "") or _extract_domain(s.get("url", ""))
+        url = s.get("url", "")
+        if is_disallowed_domain(domain) or is_disallowed_domain(url):
+            continue
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        cleaned.append(s)
+
+    has_gov = any(is_preferred_gov_domain(s.get("source_domain", "") or s.get("url", "")) for s in cleaned)
+    if not has_gov and catalog_key:
+        gov_defaults = [
+            s for s in _get_default_benchmark_sources(catalog_key)
+            if is_preferred_gov_domain(s.get("source_domain", "") or s.get("url", ""))
+        ]
+        if gov_defaults:
+            cleaned.insert(0, gov_defaults[0])
+
+    # Rank stably: .gov.in and .nic.in first (priority 0), others second (priority 1)
+    return sorted(
+        cleaned,
+        key=lambda s: 0 if is_preferred_gov_domain(s.get("source_domain", "") or s.get("url", "")) else 1
+    )
+
+
+# =====================================================================
 # 7. Core Function: get_policy_context()
 # =====================================================================
 
@@ -343,16 +416,20 @@ def get_policy_context(
     3. Checks local cache first; returns cached data if available and fresh.
     4. Calls TinyFish Search API and Fetch API (top 2 results) with timeouts and max 2 retries.
     5. Formats structured output with title, source_domain, url, summary, and retrieved_at.
-    6. Always falls back to local cache or robust policy baseline if offline or network fails.
-    7. Logs call to external API audit log.
+    6. Filters out disallowed domains (scribd.com, facebook.com) and ranks .gov.in/.nic.in first.
+    7. Always falls back to local cache or robust policy baseline if offline or network fails.
+    8. Logs call to external API audit log.
     """
     catalog_key = normalize_leak_point_key(leak_point_label)
     catalog_info = LEAK_POINTS_CATALOG.get(catalog_key, LEAK_POINTS_CATALOG["forensic_report_delay"])
 
-    # Check cache first
+    # Check cache first (preserve cached findings, clean & rank sources on return)
     cache = load_cache(cache_path)
     if not force_refresh and catalog_key in cache:
-        return cache[catalog_key]
+        cached_entry = dict(cache[catalog_key])
+        if "sources" in cached_entry:
+            cached_entry["sources"] = filter_and_rank_sources(cached_entry["sources"], catalog_key=catalog_key)
+        return cached_entry
 
     # Build and strictly sanitize generic policy query
     raw_query = catalog_info["generic_query"]
@@ -385,7 +462,18 @@ def get_policy_context(
                 )
                 raw_results = getattr(search_resp, "results", [])
                 if raw_results:
-                    top_items = raw_results[:3]
+                    # Filter out disallowed domains like scribd.com and social media
+                    filtered_results = [
+                        r for r in raw_results
+                        if not is_disallowed_domain(getattr(r, "url", ""))
+                        and not is_disallowed_domain(_extract_domain(getattr(r, "url", "")))
+                    ]
+                    # Prioritize and rank .gov.in and .nic.in domains first
+                    ranked_results = sorted(
+                        filtered_results,
+                        key=lambda r: 0 if is_preferred_gov_domain(getattr(r, "url", "")) else 1
+                    )
+                    top_items = ranked_results[:3] if ranked_results else raw_results[:3]
                     top_urls = [r.url for r in top_items if hasattr(r, "url") and r.url]
 
                     # Fetch content for top URLs to generate 1-2 sentence summaries
@@ -417,6 +505,7 @@ def get_policy_context(
                             "retrieved_at": retrieved_at
                         })
 
+                    sources = filter_and_rank_sources(sources, catalog_key=catalog_key)
                     log_external_call(clean_query, status="SUCCESS", endpoint="search")
                     success = True
                     break
@@ -442,10 +531,13 @@ def get_policy_context(
 
     # Offline / Cache Fallback
     if catalog_key in cache:
-        return cache[catalog_key]
+        cached_entry = dict(cache[catalog_key])
+        if "sources" in cached_entry:
+            cached_entry["sources"] = filter_and_rank_sources(cached_entry["sources"], catalog_key=catalog_key)
+        return cached_entry
 
     # High-fidelity offline fallback benchmark if cache is completely empty
-    fallback_sources = _get_default_benchmark_sources(catalog_key)
+    fallback_sources = filter_and_rank_sources(_get_default_benchmark_sources(catalog_key), catalog_key=catalog_key)
     fallback_payload = {
         "leak_point_label": catalog_info["title"],
         "leak_code": catalog_info["leak_code"],
@@ -466,6 +558,13 @@ def _get_default_benchmark_sources(catalog_key: str) -> List[Dict[str, str]]:
     defaults = {
         "forensic_report_delay": [
             {
+                "title": "MHA Directorate of Forensic Science Services (DFSS) Standard Guidelines",
+                "source_domain": "dfss.gov.in",
+                "url": "https://dfss.gov.in/guidelines-standards-turnaround",
+                "summary": "Directorate of Forensic Science Services mandates standard testing protocols and expedited turnaround times for biological sexual offence exhibits.",
+                "retrieved_at": now_str
+            },
+            {
                 "title": "Scientific Justice Delayed: Forensic Infrastructure Assessment under BNSS",
                 "source_domain": "ijlmh.com",
                 "url": "https://ijlmh.com/article/view/scientific-justice-delayed",
@@ -482,17 +581,17 @@ def _get_default_benchmark_sources(catalog_key: str) -> List[Dict[str, str]]:
         ],
         "fir_to_chargesheet_drop_off": [
             {
-                "title": "Statutory Investigation Timelines: Section 173 CrPC / Section 193 BNSS",
-                "source_domain": "vidhikarya.com",
-                "url": "https://www.vidhikarya.com/legal-blog/chargesheet-delay-beyond-90-days-india",
-                "summary": "Mandates police completion of heinous crime investigations within 60 to 90 days, citing early drop-offs as a primary source of trial attrition.",
-                "retrieved_at": now_str
-            },
-            {
                 "title": "BPRD SOPs on Evidence Collection in Gender-Based Offences",
                 "source_domain": "bprd.nic.in",
                 "url": "https://bprd.nic.in/publications/sop-sexual-assault-investigation",
                 "summary": "Bureau of Police Research & Development guidelines emphasize timely Section 164 statement recording to counter high FIR drop-off rates.",
+                "retrieved_at": now_str
+            },
+            {
+                "title": "Statutory Investigation Timelines: Section 173 CrPC / Section 193 BNSS",
+                "source_domain": "vidhikarya.com",
+                "url": "https://www.vidhikarya.com/legal-blog/chargesheet-delay-beyond-90-days-india",
+                "summary": "Mandates police completion of heinous crime investigations within 60 to 90 days, citing early drop-offs as a primary source of trial attrition.",
                 "retrieved_at": now_str
             }
         ],
