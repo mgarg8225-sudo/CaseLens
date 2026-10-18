@@ -108,3 +108,36 @@ def test_plot_layout_styling():
     assert layout["paper_bgcolor"] == "#111827"
     assert layout["plot_bgcolor"] == "#111827"
     assert "font" in layout
+
+
+def test_sidebar_wcag_contrast_ratios():
+    """Computes and asserts WCAG AA contrast ratios (>= 4.5:1) for all sidebar color pairs."""
+    def hex_to_rgb(hex_str: str):
+        hex_str = hex_str.lstrip('#')
+        return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
+
+    def rel_luminance(rgb):
+        def channel(c):
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+        r, g, b = [channel(c) for c in rgb]
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+    def contrast_ratio(hex1: str, hex2: str) -> float:
+        l1 = rel_luminance(hex_to_rgb(hex1))
+        l2 = rel_luminance(hex_to_rgb(hex2))
+        lighter = max(l1, l2)
+        darker = min(l1, l2)
+        return (lighter + 0.05) / (darker + 0.05)
+
+    pairs = [
+        ("Sidebar BG (#0F172A)", "Sidebar Light Text (#E6EDF3)", "#0F172A", "#E6EDF3"),
+        ("Sidebar BG (#0F172A)", "Active Nav Accent (#4FD1C5)", "#0F172A", "#4FD1C5"),
+        ("Selectbox BG (#FFFFFF)", "Selectbox Text (#111111)", "#FFFFFF", "#111111"),
+        ("Selectbox Hover (#F1F5F9)", "Selectbox Text (#111111)", "#F1F5F9", "#111111"),
+    ]
+
+    for bg_label, fg_label, bg_hex, fg_hex in pairs:
+        ratio = contrast_ratio(bg_hex, fg_hex)
+        print(f"Contrast Ratio for {bg_label} vs {fg_label}: {ratio:.2f}:1")
+        assert ratio >= 4.5, f"Contrast ratio {ratio:.2f}:1 for {fg_label} fails WCAG AA 4.5:1 requirement"
+

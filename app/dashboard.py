@@ -172,10 +172,113 @@ CUSTOM_CSS = """
         color: #fbbf24;
     }
     
-    /* Sidebar Styling */
+    /* Sidebar Base Styling */
+    section[data-testid="stSidebar"],
     [data-testid="stSidebar"] {
-        background-color: #0f172a;
+        background-color: #0f172a !important;
         border-right: 1px solid rgba(255, 255, 255, 0.06);
+        color: #E6EDF3 !important;
+    }
+    
+    /* Sidebar Headings, Labels, Markdown & Paragraphs */
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3,
+    section[data-testid="stSidebar"] h4,
+    section[data-testid="stSidebar"] p,
+    section[data-testid="stSidebar"] span,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] label,
+    section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
+    section[data-testid="stSidebar"] .stMarkdown {
+        color: #E6EDF3 !important;
+    }
+    
+    /* Navigation Radio Buttons - Unselected */
+    section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label {
+        color: #E6EDF3 !important;
+        padding: 6px 10px !important;
+        border-radius: 6px !important;
+        margin-bottom: 2px !important;
+        transition: background-color 0.15s ease, color 0.15s ease;
+    }
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label p,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
+        color: #E6EDF3 !important;
+        font-size: 0.92rem;
+    }
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+        background-color: rgba(255, 255, 255, 0.05) !important;
+    }
+    
+    /* Navigation Radio Buttons - Currently Selected Highlight (#4FD1C5, bold) */
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked),
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label[aria-checked="true"],
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has([aria-checked="true"]) {
+        background-color: rgba(79, 209, 197, 0.12) !important;
+        border-left: 3px solid #4FD1C5 !important;
+        border-radius: 4px !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] p,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label[aria-checked="true"] p,
+    section[data-testid="stSidebar"] [data-testid="stRadio"] label:has([aria-checked="true"]) p {
+        color: #4FD1C5 !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Sliders and Number Inputs in Sidebar */
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stThumbValue"],
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMin"],
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMax"],
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[role="slider"] {
+        color: #E6EDF3 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMin"],
+    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMax"] {
+        color: #94a3b8 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg {
+        fill: #94a3b8 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
+        color: #E6EDF3 !important;
+        background-color: #1e293b !important;
+        border-color: rgba(255, 255, 255, 0.15) !important;
+    }
+    
+    /* EXCEPTION: Institutional Persona Selectbox (White Background + Dark #111 Text) */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        background-color: #ffffff !important;
+        border-color: #cbd5e1 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] div,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] span,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] input,
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg {
+        color: #111111 !important;
+        fill: #111111 !important;
+    }
+    
+    /* Selectbox Dropdown Menu Options (Popover) */
+    div[data-baseweb="popover"],
+    div[data-baseweb="popover"] div,
+    ul[data-baseweb="menu"],
+    ul[data-baseweb="menu"] li,
+    ul[data-baseweb="menu"] li *,
+    div[data-baseweb="select"] ul li,
+    div[data-baseweb="select"] ul li * {
+        background-color: #ffffff !important;
+        color: #111111 !important;
+    }
+    ul[data-baseweb="menu"] li:hover,
+    ul[data-baseweb="menu"] li[aria-selected="true"] {
+        background-color: #f1f5f9 !important;
+        color: #0f172a !important;
     }
 </style>
 """

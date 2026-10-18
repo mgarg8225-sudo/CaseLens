@@ -56,6 +56,7 @@ from src.policy_context import (
     FORBIDDEN_ID_PATTERNS,
     FORBIDDEN_PII_PATTERNS,
 )
+from src.auth import auth_router
 
 
 STATUTORY_BENCHMARKS = {
@@ -338,6 +339,17 @@ def get_current_user(
         token = x_api_key.strip()
     elif authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
+        # Decode and validate signed JWT if present
+        if token.count(".") == 2:
+            from src.auth import decode_access_token
+            payload = decode_access_token(token)
+            role_val = payload.get("role", "viewer")
+            role_enum = Role.ADMIN if role_val == "admin" else (Role.ANALYST if role_val in ["analyst", "linkage_reviewer"] else Role.VIEWER)
+            return UserContext(
+                user_id=payload.get("user_id", payload.get("sub", "unknown")),
+                role=role_enum,
+                auth_method="jwt"
+            )
 
     # 1. Match configured API Keys
     if token and token in API_KEYS:
@@ -451,6 +463,9 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Mount Authentication & User Management Router
+    app.include_router(auth_router)
 
     # Global Request/Audit Interceptor Middleware
     @app.middleware("http")
