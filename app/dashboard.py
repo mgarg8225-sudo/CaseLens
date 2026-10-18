@@ -1,19 +1,20 @@
 """
-app/dashboard.py - The Leaky Pipeline: Privacy-Preserving Policy Analytics Dashboard.
+app/dashboard.py - The Leaky Pipeline: Policy Analytics Dashboard.
 
-Phase 7: Multi-Stakeholder Interactive Streamlit Web Application.
+Phase 7: Multi-Stakeholder Sober Policy Intelligence Web Application.
 Provides analytical visibility into systemic case attrition across institutional silos
 (Police, Hospital, Forensic Science Labs, Prosecution, and Courts) for violence-against-women cases,
-guaranteeing mathematical survivor privacy through Differential Privacy and k-anonymity.
+with mathematical survivor confidentiality via Differential Privacy and k-anonymity.
 
-Pages:
-1. Executive Overview (Pipeline health, district vulnerability ranking, leak points)
-2. Funnel with Uncertainty Ranges (DP Laplace noisy counts, 95% CIs, cell suppression)
-3. Duration Bottlenecks & Latency (Percentiles, statutory deadlines CrPC/BNSS/POCSO)
-4. Linkage Quality & Evaluation (Precision-Recall curve, B-Cubed metrics, error diagnostics)
-5. Before / After Policy Transformation (Naive siloed view vs unified privacy-preserving pipeline)
-6. Survivor Privacy & DP Engine (Laplace simulator, sequential budget accounting, attack defense)
-7. Statutory Policy Insights (TinyFish public context, .gov.in/.nic.in benchmarks, policy recommendations)
+Theme & Palette:
+- Background: #FAF8F5 (warm editorial off-white)
+- Card surface: #FFFFFF with 1px border #E3DED6, radius 4px, no shadow
+- Primary text: #222222, Secondary text: #5F5F5F
+- Sidebar: background #F0ECE5 with dark text #222222
+- Single accent: Deep maroon #8B1E3F (selected nav item, links, key chart series)
+- Alert color: Amber #B45309 (used only for flagged leak points and critical anomalies)
+- Neutral chart series: Greys #8C8C8C and #BDBDBD
+- Gridlines: #E8E4DC
 """
 
 import os
@@ -38,149 +39,153 @@ st.set_page_config(
 )
 
 # ==============================================================================
-# 1. Custom CSS Theme & Styling (Rich Dark Theme)
+# 1. Custom CSS Theme & Styling (Sober Editorial Light Theme)
 # ==============================================================================
 
 CUSTOM_CSS = """
 <style>
-    /* Global Styles */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    /* Global Typography & Palette */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
     
     html, body, [class*="css"] {
         font-family: 'Inter', system-ui, -apple-system, sans-serif;
     }
     
     .stApp {
-        background-color: #0b0f19;
-        color: #f1f5f9;
+        background-color: #FAF8F5;
+        color: #222222;
     }
     
     /* Top Header Banner */
     .hero-banner {
-        background: linear-gradient(135deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.8) 50%, rgba(14, 116, 144, 0.25) 100%);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 14px;
-        padding: 24px 28px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        background: #FFFFFF;
+        border: 1px solid #E3DED6;
+        border-radius: 4px;
+        padding: 20px 24px;
+        margin-bottom: 20px;
+        box-shadow: none;
     }
     .hero-title {
-        font-size: 2.1rem;
-        font-weight: 700;
-        background: linear-gradient(90deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom: 6px;
+        font-size: 1.65rem;
+        font-weight: 600;
+        color: #222222;
+        margin-bottom: 4px;
+        letter-spacing: -0.01em;
     }
     .hero-subtitle {
-        color: #94a3b8;
-        font-size: 1.0rem;
+        color: #5F5F5F;
+        font-size: 0.92rem;
         line-height: 1.5;
     }
     
-    /* KPI Metric Cards */
+    /* KPI Metric Cards: Flat, 1px border #E3DED6, radius 4px, no shadow, tabular numbers */
     .metric-card {
-        background: rgba(17, 24, 39, 0.7);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 18px 20px;
-        transition: transform 0.2s ease, border-color 0.2s ease;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
-    }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        border-color: rgba(56, 189, 248, 0.4);
+        background: #FFFFFF;
+        border: 1px solid #E3DED6;
+        border-radius: 4px;
+        padding: 14px 16px;
+        box-shadow: none;
+        transition: none;
     }
     .metric-label {
-        color: #94a3b8;
-        font-size: 0.82rem;
+        color: #5F5F5F;
+        font-size: 0.78rem;
         font-weight: 500;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
-        margin-bottom: 6px;
-    }
-    .metric-value {
-        font-size: 1.85rem;
-        font-weight: 700;
-        color: #f8fafc;
+        letter-spacing: 0.04em;
         margin-bottom: 4px;
     }
+    .metric-value {
+        font-size: 1.7rem;
+        font-weight: 600;
+        color: #222222;
+        font-variant-numeric: tabular-nums;
+        margin-bottom: 2px;
+    }
     .metric-delta {
-        font-size: 0.82rem;
-        font-weight: 500;
+        font-size: 0.8rem;
+        color: #5F5F5F;
+        font-weight: 400;
     }
     
     /* Status Badges */
     .badge {
         display: inline-block;
-        padding: 3px 10px;
-        border-radius: 9999px;
+        padding: 2px 8px;
+        border-radius: 3px;
         font-size: 0.75rem;
         font-weight: 600;
-        letter-spacing: 0.03em;
+        letter-spacing: 0.02em;
     }
     .badge-critical {
-        background-color: rgba(239, 68, 68, 0.18);
-        color: #f87171;
-        border: 1px solid rgba(239, 68, 68, 0.35);
+        background-color: #FEF3C7;
+        color: #B45309;
+        border: 1px solid #FCD34D;
     }
     .badge-normal {
-        background-color: rgba(16, 185, 129, 0.18);
-        color: #34d399;
-        border: 1px solid rgba(16, 185, 129, 0.35);
+        background-color: #F0ECE5;
+        color: #5F5F5F;
+        border: 1px solid #E3DED6;
     }
     .badge-privacy {
-        background-color: rgba(56, 189, 248, 0.18);
-        color: #38bdf8;
-        border: 1px solid rgba(56, 189, 248, 0.35);
+        background-color: #FDF2F4;
+        color: #8B1E3F;
+        border: 1px solid #F5D0D8;
     }
     
     /* Section Containers */
     .section-card {
-        background: #111827;
-        border: 1px solid rgba(255, 255, 255, 0.07);
-        border-radius: 12px;
-        padding: 22px;
-        margin-bottom: 20px;
+        background: #FFFFFF;
+        border: 1px solid #E3DED6;
+        border-radius: 4px;
+        padding: 18px 20px;
+        margin-bottom: 18px;
+        box-shadow: none;
     }
     .section-header {
-        font-size: 1.25rem;
+        font-size: 1.15rem;
         font-weight: 600;
-        color: #f1f5f9;
-        margin-bottom: 16px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        padding-bottom: 8px;
+        color: #222222;
+        margin-bottom: 14px;
+        border-bottom: 1px solid #E3DED6;
+        padding-bottom: 6px;
     }
     
     /* Callouts */
     .callout-info {
-        background: rgba(30, 41, 59, 0.6);
-        border-left: 4px solid #38bdf8;
-        padding: 14px 18px;
-        border-radius: 0 8px 8px 0;
+        background: #FFFFFF;
+        border-left: 3px solid #8B1E3F;
+        border-top: 1px solid #E3DED6;
+        border-right: 1px solid #E3DED6;
+        border-bottom: 1px solid #E3DED6;
+        padding: 12px 16px;
+        border-radius: 0 4px 4px 0;
         margin: 14px 0;
-        font-size: 0.92rem;
-        color: #cbd5e1;
+        font-size: 0.9rem;
+        color: #222222;
     }
     .callout-warning {
-        background: rgba(245, 158, 11, 0.1);
-        border-left: 4px solid #f59e0b;
-        padding: 14px 18px;
-        border-radius: 0 8px 8px 0;
+        background: #FEF3C7;
+        border-left: 3px solid #B45309;
+        border-top: 1px solid #FCD34D;
+        border-right: 1px solid #FCD34D;
+        border-bottom: 1px solid #FCD34D;
+        padding: 12px 16px;
+        border-radius: 0 4px 4px 0;
         margin: 14px 0;
-        font-size: 0.92rem;
-        color: #fbbf24;
+        font-size: 0.9rem;
+        color: #92400E;
     }
     
     /* Sidebar Base Styling */
     section[data-testid="stSidebar"],
     [data-testid="stSidebar"] {
-        background-color: #0f172a !important;
-        border-right: 1px solid rgba(255, 255, 255, 0.06);
-        color: #E6EDF3 !important;
+        background-color: #F0ECE5 !important;
+        border-right: 1px solid #E3DED6 !important;
+        color: #222222 !important;
     }
     
-    /* Sidebar Headings, Labels, Markdown & Paragraphs */
+    /* Sidebar Headings, Labels, Markdown */
     section[data-testid="stSidebar"] h1,
     section[data-testid="stSidebar"] h2,
     section[data-testid="stSidebar"] h3,
@@ -192,79 +197,79 @@ CUSTOM_CSS = """
     section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] label,
     section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p,
     section[data-testid="stSidebar"] .stMarkdown {
-        color: #E6EDF3 !important;
+        color: #222222 !important;
     }
     
-    /* Navigation Radio Buttons - Unselected */
+    /* Navigation Radio Buttons */
     section[data-testid="stSidebar"] [data-testid="stRadio"] div[role="radiogroup"] > label,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label {
-        color: #E6EDF3 !important;
-        padding: 6px 10px !important;
-        border-radius: 6px !important;
+        color: #222222 !important;
+        padding: 5px 8px !important;
+        border-radius: 4px !important;
         margin-bottom: 2px !important;
-        transition: background-color 0.15s ease, color 0.15s ease;
+        transition: background-color 0.15s ease;
     }
     section[data-testid="stSidebar"] [data-testid="stRadio"] label p,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label div[data-testid="stMarkdownContainer"] p {
-        color: #E6EDF3 !important;
-        font-size: 0.92rem;
+        color: #222222 !important;
+        font-size: 0.9rem;
     }
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
-        background-color: rgba(255, 255, 255, 0.05) !important;
+        background-color: #E8E4DC !important;
     }
     
-    /* Navigation Radio Buttons - Currently Selected Highlight (#4FD1C5, bold) */
+    /* Navigation Radio Buttons - Currently Selected Highlight (#8B1E3F deep maroon, bold) */
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked),
     section[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
     section[data-testid="stSidebar"] [data-testid="stRadio"] label[aria-checked="true"],
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:has([aria-checked="true"]) {
-        background-color: rgba(79, 209, 197, 0.12) !important;
-        border-left: 3px solid #4FD1C5 !important;
-        border-radius: 4px !important;
+        background-color: #FDF2F4 !important;
+        border-left: 3px solid #8B1E3F !important;
+        border-radius: 3px !important;
     }
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) p,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) span,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"] p,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label[aria-checked="true"] p,
     section[data-testid="stSidebar"] [data-testid="stRadio"] label:has([aria-checked="true"]) p {
-        color: #4FD1C5 !important;
-        font-weight: 700 !important;
+        color: #8B1E3F !important;
+        font-weight: 600 !important;
     }
     
-    /* Sliders and Number Inputs in Sidebar */
+    /* Sliders and Number Inputs */
     section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stThumbValue"],
-    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMin"],
-    section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMax"],
     section[data-testid="stSidebar"] [data-testid="stSlider"] div[role="slider"] {
-        color: #E6EDF3 !important;
+        color: #222222 !important;
     }
     section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMin"],
     section[data-testid="stSidebar"] [data-testid="stSlider"] div[data-testid="stSliderTickBarMax"] {
-        color: #94a3b8 !important;
+        color: #5F5F5F !important;
     }
     section[data-testid="stSidebar"] [data-testid="stTooltipIcon"] svg {
-        fill: #94a3b8 !important;
+        fill: #5F5F5F !important;
     }
     section[data-testid="stSidebar"] [data-testid="stNumberInput"] input {
-        color: #E6EDF3 !important;
-        background-color: #1e293b !important;
-        border-color: rgba(255, 255, 255, 0.15) !important;
+        color: #222222 !important;
+        background-color: #FFFFFF !important;
+        border: 1px solid #CBD5E1 !important;
+        border-radius: 4px !important;
     }
     
-    /* EXCEPTION: Institutional Persona Selectbox (White Background + Dark #111 Text) */
+    /* Institutional Persona Selectbox (White Background + Dark #222222 Text) */
     section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-        background-color: #ffffff !important;
-        border-color: #cbd5e1 !important;
+        background-color: #FFFFFF !important;
+        border: 1px solid #CBD5E1 !important;
+        border-radius: 4px !important;
     }
     section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] div,
     section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] span,
     section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] input,
     section[data-testid="stSidebar"] [data-testid="stSelectbox"] div[data-baseweb="select"] svg {
-        color: #111111 !important;
-        fill: #111111 !important;
+        color: #222222 !important;
+        fill: #222222 !important;
     }
     
-    /* Selectbox Dropdown Menu Options (Popover) */
+    /* Selectbox Dropdown Menu Options */
     div[data-baseweb="popover"],
     div[data-baseweb="popover"] div,
     ul[data-baseweb="menu"],
@@ -272,13 +277,13 @@ CUSTOM_CSS = """
     ul[data-baseweb="menu"] li *,
     div[data-baseweb="select"] ul li,
     div[data-baseweb="select"] ul li * {
-        background-color: #ffffff !important;
-        color: #111111 !important;
+        background-color: #FFFFFF !important;
+        color: #222222 !important;
     }
     ul[data-baseweb="menu"] li:hover,
     ul[data-baseweb="menu"] li[aria-selected="true"] {
-        background-color: #f1f5f9 !important;
-        color: #0f172a !important;
+        background-color: #F0ECE5 !important;
+        color: #222222 !important;
     }
 </style>
 """
@@ -348,11 +353,10 @@ DATA = load_data_bundle()
 
 with st.sidebar:
     st.markdown("""
-        <div style="text-align: center; padding: 10px 0 20px 0;">
-            <div style="font-size: 2.2rem; margin-bottom: 6px;">🛡️</div>
-            <div style="font-size: 1.25rem; font-weight: 700; color: #f8fafc; letter-spacing: -0.02em;">THE LEAKY PIPELINE</div>
-            <div style="font-size: 0.78rem; color: #38bdf8; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em;">
-                VAW Policy Intelligence Platform
+        <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
+            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">THE LEAKY PIPELINE</div>
+            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em;">
+                Policy Analytics Platform
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -389,30 +393,45 @@ with st.sidebar:
 
     st.markdown("---")
     st.markdown("""
-        <div style="font-size: 0.75rem; color: #64748b; line-height: 1.4;">
-            <strong style="color: #94a3b8;">System Integrity</strong><br/>
+        <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
+            <strong style="color: #222222;">System Integrity</strong><br/>
             • 5,125 Cases Reconstructed<br/>
             • Pure Laplace Differential Privacy<br/>
             • Zero-PII Response Verification<br/>
-            • TinyFish Statutory Benchmarking
+            • Statutory Benchmarking
         </div>
     """, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# Helper Chart Utilities
+# Helper Chart Utilities (Sober Editorial Light Layout)
 # ==============================================================================
 
-def get_plot_layout():
-    """Generates standard sleek dark layout for Plotly figures."""
+def get_plot_layout() -> Dict[str, Any]:
+    """Generates sober editorial light layout for Plotly figures."""
     return dict(
-        paper_bgcolor="#111827",
-        plot_bgcolor="#111827",
-        font=dict(color="#cbd5e1", family="Inter, sans-serif"),
-        margin=dict(l=40, r=30, t=40, b=40),
-        xaxis=dict(gridcolor="#1e293b", zerolinecolor="#334155"),
-        yaxis=dict(gridcolor="#1e293b", zerolinecolor="#334155"),
-        legend=dict(bgcolor="rgba(17,24,39,0.7)", bordercolor="rgba(255,255,255,0.1)")
+        paper_bgcolor="#FFFFFF",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#222222", family="Inter, system-ui, sans-serif", size=12),
+        margin=dict(l=45, r=30, t=45, b=45),
+        xaxis=dict(
+            gridcolor="#E8E4DC",
+            zerolinecolor="#E3DED6",
+            tickfont=dict(color="#5F5F5F", size=11),
+            title=dict(font=dict(color="#222222", size=12))
+        ),
+        yaxis=dict(
+            gridcolor="#E8E4DC",
+            zerolinecolor="#E3DED6",
+            tickfont=dict(color="#5F5F5F", size=11),
+            title=dict(font=dict(color="#222222", size=12))
+        ),
+        legend=dict(
+            bgcolor="rgba(255,255,255,0.95)",
+            bordercolor="#E3DED6",
+            borderwidth=1,
+            font=dict(color="#222222", size=11)
+        )
     )
 
 
@@ -441,7 +460,7 @@ if PAGE == "📊 Executive Overview":
             <div class="metric-card">
                 <div class="metric-label">Reconstructed Cases</div>
                 <div class="metric-value">{health.get('total_reconstructed_cases', 5125):,}</div>
-                <div class="metric-delta" style="color: #38bdf8;">14,384 Canonical Events</div>
+                <div class="metric-delta">14,384 Canonical Events</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -451,7 +470,7 @@ if PAGE == "📊 Executive Overview":
             <div class="metric-card">
                 <div class="metric-label">FIR Initiating Rate</div>
                 <div class="metric-value">84.8%</div>
-                <div class="metric-delta" style="color: #34d399;">{fir_cnt:,} Police FIRs</div>
+                <div class="metric-delta">{fir_cnt:,} Police FIRs</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -462,7 +481,7 @@ if PAGE == "📊 Executive Overview":
             <div class="metric-card">
                 <div class="metric-label">Conviction Reach Rate</div>
                 <div class="metric-value">{conviction_rate}%</div>
-                <div class="metric-delta" style="color: #f87171;">{verdict_cnt:,} Reaching Trial Verdict</div>
+                <div class="metric-delta">{verdict_cnt:,} Reaching Trial Verdict</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -470,8 +489,8 @@ if PAGE == "📊 Executive Overview":
         st.markdown("""
             <div class="metric-card">
                 <div class="metric-label">Policy Leak Points</div>
-                <div class="metric-value">3 <span style="font-size: 1rem; color: #f87171;">Critical</span></div>
-                <div class="metric-delta" style="color: #fbbf24;">D3, D6, D7 Anomalies</div>
+                <div class="metric-value">3 <span style="font-size: 1rem; color: #B45309; font-weight: 500;">Critical</span></div>
+                <div class="metric-delta">D3, D6, D7 Anomalies</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -480,7 +499,7 @@ if PAGE == "📊 Executive Overview":
             <div class="metric-card">
                 <div class="metric-label">Privacy Guarantee</div>
                 <div class="metric-value">ε-DP</div>
-                <div class="metric-delta" style="color: #34d399;">Zero PII Exposed</div>
+                <div class="metric-delta" style="color: #8B1E3F;">Zero PII Exposed</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -500,7 +519,7 @@ if PAGE == "📊 Executive Overview":
                 y="district",
                 orientation="h",
                 color="status",
-                color_discrete_map={"CRITICAL": "#ef4444", "NORMAL": "#10b981"},
+                color_discrete_map={"CRITICAL": "#B45309", "NORMAL": "#8C8C8C"},
                 text="score",
                 labels={"score": "Vulnerability Score", "district": "District", "status": "Classification"},
                 title="Composite District Leak Severity Score (Baseline: Normal < 10.0)"
@@ -519,7 +538,7 @@ if PAGE == "📊 Executive Overview":
             mult = lp.get("multiplier")
             drop = lp.get("drop_off_leak_pct")
             
-            badge_html = f'<span class="badge badge-critical">CRITICAL LEAK: {code}</span>'
+            badge_html = f'<span class="badge badge-critical">{code}</span>'
             detail_text = ""
             if mult:
                 delay = lp.get("delay_days") or lp.get("trial_delay_days", 0.0)
@@ -531,13 +550,13 @@ if PAGE == "📊 Executive Overview":
                 detail_text = f"Only <strong>{rate:.1f}%</strong> chargesheet conversion vs <strong>{bench:.1f}%</strong> benchmark (<strong>{drop:.1f}% attrition drop-off</strong>)"
 
             st.markdown(f"""
-                <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px;">
+                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #B45309; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <strong style="color: #f8fafc; font-size: 1.05rem;">{dist}</strong>
+                        <strong style="color: #222222; font-size: 1.0rem;">{dist}</strong>
                         {badge_html}
                     </div>
-                    <div style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 4px;">{title}</div>
-                    <div style="color: #94a3b8; font-size: 0.82rem;">{detail_text}</div>
+                    <div style="color: #222222; font-size: 0.88rem; margin-bottom: 4px;">{title}</div>
+                    <div style="color: #5F5F5F; font-size: 0.82rem;">{detail_text}</div>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -571,7 +590,7 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
             CONF_LEVEL = st.selectbox("Confidence Level", ["95% Confidence Interval", "99% Confidence Interval"], index=0)
         with ctrl_col3:
             st.markdown(f"""
-                <div style="padding-top: 6px; font-size: 0.85rem; color: #38bdf8;">
+                <div style="padding-top: 6px; font-size: 0.85rem; color: #5F5F5F;">
                     <strong>Privacy Mechanism:</strong> Laplace (&Delta;f=1, &epsilon;={EPSILON_SIM:.2f})
                 </div>
             """, unsafe_allow_html=True)
@@ -589,8 +608,8 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
                 name="Raw Ground Truth (Silo Unsanitized)",
                 x=stage_names,
                 y=raw_counts,
-                marker_color="#475569",
-                opacity=0.6,
+                marker_color="#BDBDBD",
+                opacity=0.8,
                 text=raw_counts,
                 textposition="auto"
             ))
@@ -599,10 +618,10 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
             name=f"Differentially Private Estimate (ε={EPSILON_SIM})",
             x=stage_names,
             y=noisy_counts,
-            error_y=dict(type='data', array=err_margins, visible=True, color="#38bdf8", thickness=2, width=6),
+            error_y=dict(type='data', array=err_margins, visible=True, color="#8B1E3F", thickness=1.5, width=4),
             marker=dict(
-                color=["#0284c7", "#0ea5e9", "#38bdf8", "#818cf8", "#a855f7"],
-                line=dict(color="#ffffff", width=1)
+                color="#8B1E3F",
+                line=dict(color="#FFFFFF", width=1)
             ),
             text=[f"{val:,}<br/>(±{err:.1f})" for val, err in zip(noisy_counts, err_margins)],
             textposition="auto"
@@ -670,8 +689,8 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
             st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">{label}</div>
-                    <div class="metric-value">{med:.1f} <span style="font-size: 0.9rem; color: #94a3b8;">days median</span></div>
-                    <div class="metric-delta" style="color: #f59e0b;">P95 Latency: {p95:.1f} days (n={sample:,})</div>
+                    <div class="metric-value">{med:.1f} <span style="font-size: 0.85rem; color: #5F5F5F;">days</span></div>
+                    <div class="metric-delta">P95: {p95:.1f} days (n={sample:,})</div>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -691,25 +710,24 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
                 df_b,
                 x="Latency Bucket",
                 y="Case Count",
-                color="Case Count",
-                color_continuous_scale="Viridis",
                 title=f"Latency Distribution: {sel_trans}"
             )
+            fig_buckets.update_traces(marker_color="#8B1E3F")
             fig_buckets.update_layout(get_plot_layout())
             st.plotly_chart(fig_buckets, use_container_width=True)
 
     with b_right:
-        st.markdown(f"### 📊 Non-Parametric Latency Percentiles")
+        st.markdown("### 📊 Non-Parametric Latency Percentiles")
         st.markdown(f"""
-            <div style="background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 10px; padding: 18px;">
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 16px; color: #222222;">
                 <p><strong>Sample Size:</strong> {selected_data.get('sample_count', 0):,} cases</p>
                 <p><strong>Mean Duration:</strong> {selected_data.get('mean_days', 0.0):.1f} ± {selected_data.get('std_days', 0.0):.1f} days</p>
                 <p><strong>Median (P50):</strong> {selected_data.get('median_days', 0.0):.1f} days</p>
                 <p><strong>Interquartile Range (IQR):</strong> {selected_data.get('iqr_days', 0.0):.1f} days (P25: {selected_data.get('p25_days', 0.0)}d - P75: {selected_data.get('p75_days', 0.0)}d)</p>
                 <p><strong>Severe Delay (P90):</strong> {selected_data.get('p90_days', 0.0):.1f} days</p>
                 <p><strong>Extreme Outlier (P95):</strong> {selected_data.get('p95_days', 0.0):.1f} days</p>
-                <hr style="border-color: rgba(255,255,255,0.1);"/>
-                <p style="color: #38bdf8;"><strong>Statutory Mandate Compliance:</strong> {selected_data.get('statutory_compliance', {}).get('within_60_days_pct', 0.0)}% within 60 days</p>
+                <hr style="border-color: #E3DED6; margin: 10px 0;"/>
+                <p style="color: #8B1E3F; font-weight: 500;"><strong>Statutory Mandate Compliance:</strong> {selected_data.get('statutory_compliance', {}).get('within_60_days_pct', 0.0)}% within 60 days</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -740,7 +758,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             <div class="metric-card">
                 <div class="metric-label">B-Cubed F1 Score</div>
                 <div class="metric-value">{cluster.get('bcubed_f1', 0.9288):.3f}</div>
-                <div class="metric-delta" style="color: #34d399;">Cluster-Level Accuracy</div>
+                <div class="metric-delta">Cluster-Level Accuracy</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -749,7 +767,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             <div class="metric-card">
                 <div class="metric-label">Macro Entity Purity</div>
                 <div class="metric-value">{cluster.get('macro_purity', 0.972):.1%}</div>
-                <div class="metric-delta" style="color: #34d399;">Near-Zero Cross-Contamination</div>
+                <div class="metric-delta">Near-Zero Cross-Contamination</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -758,7 +776,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             <div class="metric-card">
                 <div class="metric-label">Pairwise Recall</div>
                 <div class="metric-value">{pairwise.get('metrics_at_default_threshold', {}).get('recall', 0.8846):.1%}</div>
-                <div class="metric-delta" style="color: #38bdf8;">At Optimal Threshold 0.85</div>
+                <div class="metric-delta">At Optimal Threshold 0.85</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -767,7 +785,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             <div class="metric-card">
                 <div class="metric-label">Candidate Search Space</div>
                 <div class="metric-value">{pairwise.get('total_candidate_pairs', 706105):,}</div>
-                <div class="metric-delta" style="color: #a855f7;">Blocked Pair Comparisons</div>
+                <div class="metric-delta">Blocked Pair Comparisons</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -786,11 +804,12 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             title="Precision-Recall Curve Across Probabilistic Thresholds (0.10 to 0.95)",
             labels={"recall": "Recall (True Positive Rate)", "precision": "Precision (Positive Predictive Value)"}
         )
+        fig_pr.update_traces(line_color="#8B1E3F", marker=dict(color="#8B1E3F"))
         fig_pr.add_trace(go.Scatter(
             x=[pairwise.get('metrics_at_default_threshold', {}).get('recall', 0.8846)],
             y=[pairwise.get('metrics_at_default_threshold', {}).get('precision', 0.572)],
             mode="markers+text",
-            marker=dict(color="#ef4444", size=14, symbol="star"),
+            marker=dict(color="#B45309", size=12, symbol="star"),
             name="Optimal Threshold (0.85)",
             text=["Selected Operational Threshold (0.85)"],
             textposition="top right"
@@ -822,12 +841,12 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
 
     with c_before:
         st.markdown("""
-            <div style="background: rgba(30, 41, 59, 0.4); border: 2px dashed rgba(239, 68, 68, 0.4); border-radius: 12px; padding: 22px; min-height: 480px;">
+            <div style="background: #FAF8F5; border: 1px dashed #CBD5E1; border-radius: 4px; padding: 20px; min-height: 460px;">
                 <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                    <span style="font-size: 1.5rem; margin-right: 8px;">❌</span>
-                    <strong style="color: #f87171; font-size: 1.3rem;">BEFORE: Siloed Institutional Data</strong>
+                    <span style="font-size: 1.25rem; margin-right: 8px;">❌</span>
+                    <strong style="color: #B45309; font-size: 1.15rem;">BEFORE: Siloed Institutional Data</strong>
                 </div>
-                <ul style="color: #cbd5e1; line-height: 1.8; font-size: 0.95rem;">
+                <ul style="color: #222222; line-height: 1.8; font-size: 0.92rem;">
                     <li><strong>Departmental Blindness:</strong> Police, Hospitals, Forensic Labs, and Courts maintain disconnected databases with distinct survivor identifiers.</li>
                     <li><strong>False Self-Assessments:</strong>
                         <ul>
@@ -844,12 +863,12 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
 
     with c_after:
         st.markdown("""
-            <div style="background: rgba(17, 24, 39, 0.8); border: 2px solid rgba(16, 185, 129, 0.5); border-radius: 12px; padding: 22px; min-height: 480px;">
+            <div style="background: #FFFFFF; border: 1px solid #8B1E3F; border-radius: 4px; padding: 20px; min-height: 460px;">
                 <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                    <span style="font-size: 1.5rem; margin-right: 8px;">✅</span>
-                    <strong style="color: #34d399; font-size: 1.3rem;">AFTER: Privacy-Preserving Linkage Pipeline</strong>
+                    <span style="font-size: 1.25rem; margin-right: 8px;">✅</span>
+                    <strong style="color: #8B1E3F; font-size: 1.15rem;">AFTER: Privacy-Preserving Linkage Pipeline</strong>
                 </div>
-                <ul style="color: #cbd5e1; line-height: 1.8; font-size: 0.95rem;">
+                <ul style="color: #222222; line-height: 1.8; font-size: 0.92rem;">
                     <li><strong>Unified Case Trajectories:</strong> 14,384 events stitched into 5,125 complete case journeys across all 5 institutional stages.</li>
                     <li><strong>Pinpointed Systemic Leak Points:</strong>
                         <ul>
@@ -920,7 +939,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
             <div class="metric-card">
                 <div class="metric-label">Total Epsilon Allocated</div>
                 <div class="metric-value">{budget_sum.get('total_epsilon_allocated', 10.0):.2f}</div>
-                <div class="metric-delta" style="color: #38bdf8;">Sequential Budget Upper Bound</div>
+                <div class="metric-delta">Sequential Budget Upper Bound</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -930,7 +949,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
             <div class="metric-card">
                 <div class="metric-label">Epsilon Budget Spent</div>
                 <div class="metric-value">{spent:.2f}</div>
-                <div class="metric-delta" style="color: #f59e0b;">Consumed by Analytical Queries</div>
+                <div class="metric-delta">Consumed by Analytical Queries</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -940,7 +959,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
             <div class="metric-card">
                 <div class="metric-label">Remaining Epsilon</div>
                 <div class="metric-value">{rem:.2f}</div>
-                <div class="metric-delta" style="color: #34d399;">Available Query Capacity</div>
+                <div class="metric-delta" style="color: #8B1E3F;">Available Query Capacity</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -949,7 +968,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
             <div class="metric-card">
                 <div class="metric-label">Zero-PII Status</div>
                 <div class="metric-value">100%</div>
-                <div class="metric-delta" style="color: #34d399;">Verified: Zero Leaked Names/IDs</div>
+                <div class="metric-delta">Verified: Zero Leaked Names/IDs</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -966,10 +985,10 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         margin_95 = -scale_b * math.log(0.05)
 
         st.markdown(f"""
-            <div style="background: rgba(30, 41, 59, 0.7); border-radius: 8px; padding: 14px; margin-top: 14px;">
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px; margin-top: 14px;">
                 <p><strong>Laplace Scale (b = Δf / ε):</strong> {scale_b:.2f}</p>
                 <p><strong>95% Theoretical Error Bound:</strong> ±{margin_95:.2f} cases</p>
-                <p style="font-size: 0.85rem; color: #94a3b8;">
+                <p style="font-size: 0.85rem; color: #5F5F5F;">
                     Under ε={sim_eps}, 95% of all analytical queries will have error no greater than 
                     ±{margin_95:.1f} cases, neutralizing membership inference while maintaining statistical utility.
                 </p>
@@ -985,8 +1004,9 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
             title=f"Laplace Probability Density Function (b={scale_b:.2f})",
             labels={"x": "Noise Drawn (Cases)", "y": "Probability Density"}
         )
-        fig_lap.add_vline(x=-margin_95, line_dash="dash", line_color="#ef4444", annotation_text="-95% CI")
-        fig_lap.add_vline(x=margin_95, line_dash="dash", line_color="#ef4444", annotation_text="+95% CI")
+        fig_lap.update_traces(line_color="#8B1E3F")
+        fig_lap.add_vline(x=-margin_95, line_dash="dash", line_color="#B45309", annotation_text="-95% CI")
+        fig_lap.add_vline(x=margin_95, line_dash="dash", line_color="#B45309", annotation_text="+95% CI")
         fig_lap.update_layout(get_plot_layout())
         st.plotly_chart(fig_lap, use_container_width=True)
 
@@ -1000,23 +1020,23 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
     att_col1, att_col2 = st.columns(2)
     with att_col1:
         st.markdown(f"""
-            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 16px;">
-                <h4 style="color: #f87171; margin-top: 0;">Unprotected Raw Data Vulnerability</h4>
+            <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 4px; padding: 16px;">
+                <h4 style="color: #92400E; margin-top: 0;">Unprotected Raw Data Vulnerability</h4>
                 <p><strong>Singling-Out / Marksmanship Risk:</strong> {before_supp.get('singling_out_risk_pct', 7.42)}%</p>
                 <p><strong>Max Prosecutor Re-identification Risk:</strong> {before_supp.get('max_prosecutor_risk_pct', 100.0)}%</p>
                 <p><strong>Unique Vulnerable Survivor Cases:</strong> {before_supp.get('unique_records_count', 380):,} records</p>
-                <p style="font-size: 0.85rem; color: #fca5a5;">An attacker with auxiliary knowledge can single out individuals with 100% certainty.</p>
+                <p style="font-size: 0.85rem; color: #B45309;">An attacker with auxiliary knowledge can single out individuals with 100% certainty.</p>
             </div>
         """, unsafe_allow_html=True)
 
     with att_col2:
         st.markdown(f"""
-            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 16px;">
-                <h4 style="color: #34d399; margin-top: 0;">Post-Suppression & DP Defense</h4>
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 16px;">
+                <h4 style="color: #8B1E3F; margin-top: 0;">Post-Suppression & DP Defense</h4>
                 <p><strong>Singling-Out / Marksmanship Risk:</strong> {after_supp.get('singling_out_risk_pct', 0.0)}% (0 vulnerable cases)</p>
                 <p><strong>Max Prosecutor Re-identification Risk:</strong> {after_supp.get('max_prosecutor_risk_pct', 20.0)}% (k >= 5 enforced)</p>
                 <p><strong>Suppression Audit:</strong> 100% of equivalence classes &lt; 5 masked</p>
-                <p style="font-size: 0.85rem; color: #86efac;">Singling out completely foiled; mathematical plausible deniability guaranteed.</p>
+                <p style="font-size: 0.85rem; color: #5F5F5F;">Singling out completely foiled; mathematical plausible deniability guaranteed.</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1054,16 +1074,16 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
         with st.expander(f"📍 [{leak_code}] {leak_label}", expanded=True):
             st.markdown(f"""
                 <div style="margin-bottom: 12px;">
-                    <strong style="color: #f87171;">Empirical Pipeline Finding:</strong><br/>
-                    <span style="color: #e2e8f0;">{finding}</span>
+                    <strong style="color: #B45309;">Empirical Pipeline Finding:</strong><br/>
+                    <span style="color: #222222;">{finding}</span>
                 </div>
                 <div style="margin-bottom: 16px;">
-                    <strong style="color: #38bdf8;">Recommended Statutory Intervention:</strong><br/>
-                    <span style="color: #cbd5e1;">{intervention}</span>
+                    <strong style="color: #8B1E3F;">Recommended Statutory Intervention:</strong><br/>
+                    <span style="color: #5F5F5F;">{intervention}</span>
                 </div>
             """, unsafe_allow_html=True)
 
-            st.markdown("<strong style='color: #34d399;'>Official Government & Statutory Sources:</strong>", unsafe_allow_html=True)
+            st.markdown("<strong style='color: #222222;'>Official Government & Statutory Sources:</strong>", unsafe_allow_html=True)
             for s in sources:
                 domain = s.get("source_domain", "")
                 is_gov = (".gov.in" in domain) or (".nic.in" in domain)
@@ -1071,14 +1091,14 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
                 badge_label = "OFFICIAL GOVT SOURCE" if is_gov else "STATUTORY REFERENCE"
 
                 st.markdown(f"""
-                    <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px;">
+                    <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 12px 14px; margin-bottom: 8px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                            <a href="{s.get('url', '#')}" target="_blank" style="color: #38bdf8; font-weight: 600; text-decoration: none;">
+                            <a href="{s.get('url', '#')}" target="_blank" style="color: #8B1E3F; font-weight: 600; text-decoration: underline;">
                                 {s.get('title', 'Document')} ↗
                             </a>
                             <span class="badge {badge_type}">{badge_label} ({domain})</span>
                         </div>
-                        <div style="font-size: 0.85rem; color: #94a3b8; line-height: 1.4;">
+                        <div style="font-size: 0.85rem; color: #5F5F5F; line-height: 1.4;">
                             {s.get('summary', '')}
                         </div>
                     </div>
@@ -1092,10 +1112,10 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
             <div class="callout-info">
                 <div style="display: flex; align-items: center; margin-bottom: 4px;">
                     <span style="font-size: 1.2rem; margin-right: 6px;">🤖</span>
-                    <strong style="color: #38bdf8;">Autonomous TinyFish Web Agent Fact Extraction</strong>
+                    <strong style="color: #8B1E3F;">Autonomous TinyFish Web Agent Fact Extraction</strong>
                 </div>
                 <div><strong>Mandate:</strong> {fact.get('fact', '')}</div>
-                <div style="font-size: 0.82rem; color: #94a3b8; margin-top: 4px;">
+                <div style="font-size: 0.82rem; color: #5F5F5F; margin-top: 4px;">
                     Statutory Reference: {fact.get('statutory_reference', '')} | Enacted: {fact.get('enactment_year', 2012)} | Source: {fact.get('source_domain', '')}
                 </div>
             </div>

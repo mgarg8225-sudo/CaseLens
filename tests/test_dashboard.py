@@ -103,15 +103,15 @@ def test_policy_context_statutory_sources():
 
 
 def test_plot_layout_styling():
-    """Verifies consistent sleek dark plot layout configuration."""
+    """Verifies consistent sober editorial light plot layout configuration."""
     layout = get_plot_layout()
-    assert layout["paper_bgcolor"] == "#111827"
-    assert layout["plot_bgcolor"] == "#111827"
+    assert layout["paper_bgcolor"] == "#FFFFFF"
+    assert layout["plot_bgcolor"] == "#FFFFFF"
     assert "font" in layout
 
 
-def test_sidebar_wcag_contrast_ratios():
-    """Computes and asserts WCAG AA contrast ratios (>= 4.5:1) for all sidebar color pairs."""
+def test_theme_wcag_contrast_ratios():
+    """Computes and asserts WCAG AA contrast ratios (>= 4.5:1) for all theme color pairs."""
     def hex_to_rgb(hex_str: str):
         hex_str = hex_str.lstrip('#')
         return tuple(int(hex_str[i:i+2], 16) / 255.0 for i in (0, 2, 4))
@@ -130,14 +130,25 @@ def test_sidebar_wcag_contrast_ratios():
         return (lighter + 0.05) / (darker + 0.05)
 
     pairs = [
-        ("Sidebar BG (#0F172A)", "Sidebar Light Text (#E6EDF3)", "#0F172A", "#E6EDF3"),
-        ("Sidebar BG (#0F172A)", "Active Nav Accent (#4FD1C5)", "#0F172A", "#4FD1C5"),
-        ("Selectbox BG (#FFFFFF)", "Selectbox Text (#111111)", "#FFFFFF", "#111111"),
-        ("Selectbox Hover (#F1F5F9)", "Selectbox Text (#111111)", "#F1F5F9", "#111111"),
+        ("Page BG (#FAF8F5)", "Primary Text (#222222)", "#FAF8F5", "#222222"),
+        ("Page BG (#FAF8F5)", "Secondary Text (#5F5F5F)", "#FAF8F5", "#5F5F5F"),
+        ("Page BG (#FAF8F5)", "Accent Maroon (#8B1E3F)", "#FAF8F5", "#8B1E3F"),
+        ("Card Surface (#FFFFFF)", "Primary Text (#222222)", "#FFFFFF", "#222222"),
+        ("Card Surface (#FFFFFF)", "Secondary Text (#5F5F5F)", "#FFFFFF", "#5F5F5F"),
+        ("Card Surface (#FFFFFF)", "Accent Maroon (#8B1E3F)", "#FFFFFF", "#8B1E3F"),
+        ("Sidebar BG (#F0ECE5)", "Dark Text (#222222)", "#F0ECE5", "#222222"),
+        ("Sidebar BG (#F0ECE5)", "Secondary Text (#5F5F5F)", "#F0ECE5", "#5F5F5F"),
+        ("Sidebar BG (#F0ECE5)", "Selected Nav Accent (#8B1E3F)", "#F0ECE5", "#8B1E3F"),
+        ("Alert Badge (#FEF3C7)", "Alert Amber (#B45309)", "#FEF3C7", "#B45309"),
+        ("Selectbox Surface (#FFFFFF)", "Selectbox Text (#222222)", "#FFFFFF", "#222222"),
     ]
 
+    print("\n| Background | Foreground / Text | Contrast Ratio | WCAG AA (>= 4.5:1) |")
+    print("|---|---|---|---|")
     for bg_label, fg_label, bg_hex, fg_hex in pairs:
         ratio = contrast_ratio(bg_hex, fg_hex)
-        print(f"Contrast Ratio for {bg_label} vs {fg_label}: {ratio:.2f}:1")
+        passed = "Pass (AAA)" if ratio >= 7.0 else ("Pass (AA)" if ratio >= 4.5 else "FAIL")
+        print(f"| {bg_label} | {fg_label} | **{ratio:.2f}:1** | {passed} |")
         assert ratio >= 4.5, f"Contrast ratio {ratio:.2f}:1 for {fg_label} fails WCAG AA 4.5:1 requirement"
+
 
