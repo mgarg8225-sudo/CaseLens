@@ -24,3 +24,7 @@ Thumbs.db
 
 # streamlit secrets
 .streamlit/secrets.toml
+
+data/linked_pairs.csv
+__pycache__/
+*.pyc
