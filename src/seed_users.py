@@ -159,7 +159,7 @@ def seed_demo_users(
 
     if print_output:
         print("\n" + "=" * 90)
-        print("THE LEAKY PIPELINE - PHASE A DEMO USER SEEDING")
+        print("CASELENS - PHASE A DEMO USER SEEDING")
         print("Random passwords generated once in memory for demo & testing. Never saved to disk.")
         print("=" * 90)
         print(f"{'Role':<18} | {'Username':<18} | {'Agency':<12} | {'District':<14} | {'Generated Password'}")

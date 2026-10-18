@@ -1,4 +1,4 @@
-# Project Progress: The Leaky Pipeline
+# Project Progress: CaseLens
 
 ## Status Overview
 - **Phase 1: Synthetic Data Generation (`src/generate_data.py`)** - COMPLETED & COMMITTED.

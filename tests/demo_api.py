@@ -16,7 +16,7 @@ def main():
     admin_headers = {"X-API-Key": "admin-key-leaky-2026"}
 
     print("=" * 70)
-    print("LIVE API DEMONSTRATION: THE LEAKY PIPELINE PRIVACY-PRESERVING SERVICE")
+    print("LIVE API DEMONSTRATION: CASELENS PRIVACY-PRESERVING SERVICE")
     print("=" * 70)
 
     print("\n[+] 1. HEALTH & PRIVACY ENGINE STATUS (GET /api/v1/health)")

@@ -1,7 +1,7 @@
 """
 src/auth.py - Authentication, User Management, and Security Engine.
 
-Phase A of The Leaky Pipeline Security Architecture:
+Phase A of CaseLens Security Architecture:
 1. DuckDB Users Schema: id, username, password_hash (Argon2), role, agency, district,
    is_active, failed_attempts, locked_until.
 2. Zero Plaintext Passwords: All passwords securely hashed with Argon2id. Never logged or saved.

@@ -717,7 +717,7 @@ def run_privacy_pipeline(
     """
     from datetime import timezone
     print("=" * 70)
-    print("THE LEAKY PIPELINE - PHASE 5: SURVIVOR PRIVACY & DP ENGINE")
+    print("CASELENS - PHASE 5: SURVIVOR PRIVACY & DP ENGINE")
     print("=" * 70)
 
     # 1. Initialize Privacy Budget Manager

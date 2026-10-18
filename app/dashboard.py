@@ -1,5 +1,5 @@
 """
-app/dashboard.py - The Leaky Pipeline: Policy Analytics Dashboard.
+app/dashboard.py - CaseLens: Policy Analytics Dashboard.
 
 Phase 7: Multi-Stakeholder Sober Policy Intelligence Web Application.
 Provides analytical visibility into systemic case attrition across institutional silos
@@ -32,7 +32,7 @@ import streamlit as st
 
 # Configure Page Settings
 st.set_page_config(
-    page_title="The Leaky Pipeline | Policy Intelligence Dashboard",
+    page_title="CaseLens | Policy Intelligence Dashboard",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -354,9 +354,9 @@ DATA = load_data_bundle()
 with st.sidebar:
     st.markdown("""
         <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
-            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">THE LEAKY PIPELINE</div>
-            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em;">
-                Policy Analytics Platform
+            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CASELENS</div>
+            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; letter-spacing: 0.02em;">
+                Violence-against-women case analytics
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -442,6 +442,8 @@ def get_plot_layout() -> Dict[str, Any]:
 if PAGE == "📊 Executive Overview":
     st.markdown("""
         <div class="hero-banner">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">Tracing where violence-against-women cases drop out.</div>
             <div class="hero-title">Executive Policy Overview: Violence-Against-Women Case Attrition</div>
             <div class="hero-subtitle">
                 Systemic drop-off analytics reconstructed from multi-institutional silos (Police FIR, Hospital MLC, 

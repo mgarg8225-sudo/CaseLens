@@ -1,5 +1,5 @@
 """
-The Leaky Pipeline - Policy Context Module (TinyFish Integration)
+CaseLens - Policy Context Module (TinyFish Integration)
 =================================================================
 Fetches publicly available statutory policy and infrastructure benchmarks
 for system leak points using TinyFish Search, Fetch, and Web Agent APIs.
@@ -719,7 +719,7 @@ def generate_all_top5_policy_contexts(
     Ensures offline readiness and returns a compiled dictionary.
     """
     print("\n" + "=" * 70)
-    print("THE LEAKY PIPELINE - PUBLIC POLICY CONTEXT RETRIEVAL (TINYFISH)")
+    print("CASELENS - PUBLIC POLICY CONTEXT RETRIEVAL (TINYFISH)")
     print("=" * 70)
 
     results = {}

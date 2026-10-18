@@ -30,7 +30,7 @@ def test_root_endpoint(api_client):
     response = api_client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert data["service"] == "The Leaky Pipeline - Policy Analytics API"
+    assert data["service"] == "CaseLens - Policy Analytics API"
     assert data["status"] == "OPERATIONAL"
     assert "roles_supported" in data
     assert "admin" in data["roles_supported"]

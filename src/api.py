@@ -1,7 +1,7 @@
 """
 src/api.py - Privacy-Preserving FastAPI Backend Service.
 
-Phase 6 of The Leaky Pipeline:
+Phase 6 of CaseLens:
 Provides secure, privacy-preserving analytical REST API endpoints for institutional
 stakeholders (Judiciary, Police, Health Dept, Women & Child Development, Policy Researchers).
 
@@ -444,7 +444,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         DATA_STORE = DataStore(data_dir)
 
     app = FastAPI(
-        title="The Leaky Pipeline - Privacy-Preserving Policy Analytics API",
+        title="CaseLens - Privacy-Preserving Policy Analytics API",
         description=(
             "Production-grade FastAPI analytical service providing institutional aggregates, "
             "differential privacy protections, and statutory policy benchmarking for violence-against-women "
@@ -523,7 +523,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     def root():
         """Root metadata endpoint with system status, active privacy mechanisms, and roles."""
         return sanitize_and_verify_payload({
-            "service": "The Leaky Pipeline - Policy Analytics API",
+            "service": "CaseLens - Policy Analytics API",
             "version": "1.0.0",
             "status": "OPERATIONAL",
             "privacy_guarantees": [
@@ -910,5 +910,5 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    print("[*] Launching The Leaky Pipeline Privacy-Preserving API on http://127.0.0.1:8000")
+    print("[*] Launching CaseLens Privacy-Preserving API on http://127.0.0.1:8000")
     uvicorn.run("src.api:app", host="0.0.0.0", port=8000, reload=True)

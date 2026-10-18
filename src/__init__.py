@@ -1,1 +1,1 @@
-"""Leaky Pipeline package."""
+"""CaseLens package."""

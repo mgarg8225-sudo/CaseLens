@@ -15,7 +15,10 @@ import asyncio
 import websockets
 
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-ARTIFACT_DIR = r"C:\Users\mgarg\.gemini\antigravity-ide\brain\06181fde-5eb7-4d13-8932-7e0f643c64a1"
+ARTIFACT_DIR = os.environ.get(
+    "ARTIFACT_DIR",
+    r"C:\Users\mgarg\.gemini\antigravity-ide\brain\248869bc-fca1-4d0c-b98f-944211416ca8"
+)
 
 
 async def capture_page_screenshot(
@@ -95,25 +98,25 @@ async def capture_page_screenshot(
 
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "before"
+    mode = sys.argv[1] if len(sys.argv) > 1 else "caselens"
     if mode == "before":
         print("Capturing BEFORE screenshots...")
         asyncio.run(capture_page_screenshot("before_overview.png", None))
         asyncio.run(capture_page_screenshot("before_privacy.png", "Survivor Privacy"))
-    elif mode == "after":
-        print("Capturing AFTER screenshots...")
-        asyncio.run(capture_page_screenshot("after_overview.png", None))
-        asyncio.run(capture_page_screenshot("after_privacy.png", "Survivor Privacy"))
+    elif mode in ("after", "caselens"):
+        print("Capturing CASELENS screenshots...")
+        asyncio.run(capture_page_screenshot("caselens_overview.png", None))
+        asyncio.run(capture_page_screenshot("caselens_privacy.png", "Survivor Privacy"))
     elif mode == "all_7":
         print("Capturing all 7 pages...")
         pages = [
-            ("Overview", "page1_overview.png"),
-            ("Funnel", "page2_funnel.png"),
-            ("Duration", "page3_bottlenecks.png"),
-            ("Linkage", "page4_linkage.png"),
-            ("Before", "page5_before_after.png"),
-            ("Survivor Privacy", "page6_privacy.png"),
-            ("Statutory", "page7_statutory.png")
+            ("Overview", "caselens_page1_overview.png"),
+            ("Funnel", "caselens_page2_funnel.png"),
+            ("Duration", "caselens_page3_bottlenecks.png"),
+            ("Linkage", "caselens_page4_linkage.png"),
+            ("Before", "caselens_page5_before_after.png"),
+            ("Survivor Privacy", "caselens_page6_privacy.png"),
+            ("Statutory", "caselens_page7_statutory.png")
         ]
         for query, fname in pages:
             asyncio.run(capture_page_screenshot(fname, query))
