@@ -9,3 +9,18 @@ htmlcov/
 .env
 .env.*
 
+# secrets / keys
+*.key
+*.pem
+
+# virtual environments (future safety)
+venv/
+.venv/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+.vscode/
+
+# streamlit secrets
+.streamlit/secrets.toml
