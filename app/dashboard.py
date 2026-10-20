@@ -41,6 +41,7 @@ from src.auth import (
     ROLE_PERMISSIONS
 )
 from src.seed_users import init_demo_users
+from src.case_simulator import SCENARIOS, run_simulation
 
 # Configure Page Settings
 st.set_page_config(
@@ -1439,21 +1440,202 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
 
 
 # ==============================================================================
-# PAGE 8: 🧪 Case Simulator (Scheduled for Part B)
+# PAGE 8: 🧪 Case Simulator (Input vs Output)
 # ==============================================================================
 
 elif PAGE == "🧪 Case Simulator":
+    if CURRENT_ROLE not in ["analyst", "admin"]:
+        st.error("⛔ Access Denied: Case Simulator requires Analyst or Administrator role.")
+        st.stop()
+
     st.markdown("""
         <div class="hero-banner">
             <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
             <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">The Leaky Pipeline</div>
-            <div class="hero-title">Case Simulator (Case Input & Output)</div>
+            <div class="hero-title">Case Simulator: What Goes In vs What Comes Out</div>
             <div class="hero-subtitle">
-                Judicial interactive simulator demonstrating multi-agency synthetic record inputs and real-time linkage and attrition outputs.
+                Judicial interactive demonstration comparing raw synthetic agency inputs with real-time probabilistic record linkage scoring,
+                per-field evidence contributions, and longitudinal journey attrition reconstruction.
             </div>
         </div>
     """, unsafe_allow_html=True)
-    st.info("🧪 **Case Simulator**: Ready for Part B. Allows judicial walkthrough across 8 synthetic scenarios and custom record editing.")
+
+    st.markdown("""
+        <div style="background: #FDF2F4; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 10px 14px; margin-bottom: 20px; font-size: 0.82rem; color: #8B1E3F;">
+            <strong>⚠️ Synthetic Judicial Simulation Only:</strong> All records, names, dates, and identifiers displayed here are purely synthetic and fictional.
+            No real survivor microdata is accessed or queried. Linkage calculations are algorithmic probabilistic outputs for demonstration and do NOT constitute judicial determinations or legal findings.
+        </div>
+    """, unsafe_allow_html=True)
+
+    col_in, col_out = st.columns([1, 1.25], gap="large")
+
+    with col_in:
+        st.markdown("### 📥 Case Input: Agency Records")
+        st.markdown("<div style='font-size: 0.85rem; color: #5F5F5F; margin-bottom: 12px;'>Select a pre-configured scenario or customize synthetic fields.</div>", unsafe_allow_html=True)
+
+        scenario_keys = list(SCENARIOS.keys())
+        scenario_titles = [SCENARIOS[k]["title"] for k in scenario_keys]
+        selected_title = st.selectbox("Choose Judicial Scenario", scenario_titles, index=0)
+        selected_key = scenario_keys[scenario_titles.index(selected_title)]
+        scenario_data = SCENARIOS[selected_key]
+
+        st.markdown(f"""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 12px 14px; margin-bottom: 14px;">
+                <strong style="color: #222222; font-size: 0.88rem;">Scenario Objective:</strong><br/>
+                <span style="font-size: 0.82rem; color: #5F5F5F; line-height: 1.4;">{scenario_data['description']}</span>
+            </div>
+        """, unsafe_allow_html=True)
+
+        edit_mode = st.toggle("✏️ Edit Fields Mode (Custom Synthetic Values)", value=False)
+
+        if not edit_mode:
+            sim_result = run_simulation(selected_key)
+            records_to_display = sim_result["records"]
+
+            st.markdown(f"**Agency Records Provided ({len(records_to_display)} Records):**")
+            for rec in records_to_display:
+                with st.expander(f"📄 {rec['agency']} — {rec.get('record_id', 'ID')}", expanded=True):
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown(f"**Name:** `{rec.get('name') or 'N/A'}`")
+                        st.markdown(f"**Guardian:** `{rec.get('guardian') or 'N/A'}`")
+                        st.markdown(f"**District:** `{rec.get('district') or 'N/A'}`")
+                    with c2:
+                        st.markdown(f"**Locality:** `{rec.get('locality') or 'N/A'}`")
+                        st.markdown(f"**Incident Date:** `{rec.get('incident_date') or 'N/A'}`")
+                        st.markdown(f"**Record Date:** `{rec.get('record_date') or 'N/A'}`")
+                    if rec.get("offense") or rec.get("details"):
+                        st.caption(f"Details: {rec.get('offense') or rec.get('details')}")
+        else:
+            st.info("💡 **Edit Mode Active**: Modify the synthetic fields below. Only obviously fictional demo names are accepted.")
+            base_records = scenario_data["records"]
+            custom_records = []
+
+            with st.form("edit_scenario_form"):
+                for idx, r in enumerate(base_records):
+                    st.markdown(f"##### {r['agency']} ({r.get('record_id')})")
+                    ec1, ec2 = st.columns(2)
+                    with ec1:
+                        new_name = st.text_input(f"Name ({r['agency']})", value=r.get("name") or "", key=f"edit_name_{idx}")
+                        new_guard = st.text_input(f"Guardian ({r['agency']})", value=r.get("guardian") or "", key=f"edit_guard_{idx}")
+                        new_dist = st.text_input(f"District ({r['agency']})", value=r.get("district") or "", key=f"edit_dist_{idx}")
+                    with ec2:
+                        new_loc = st.text_input(f"Locality ({r['agency']})", value=r.get("locality") or "", key=f"edit_loc_{idx}")
+                        new_inc = st.text_input(f"Incident Date (YYYY-MM-DD)", value=r.get("incident_date") or "", key=f"edit_inc_{idx}")
+                        new_rec = st.text_input(f"Record Date (YYYY-MM-DD)", value=r.get("record_date") or "", key=f"edit_rec_{idx}")
+
+                    custom_records.append({
+                        "agency": r["agency"],
+                        "agency_code": r["agency_code"],
+                        "record_id": r["record_id"],
+                        "name": new_name.strip() if new_name else None,
+                        "guardian": new_guard.strip() if new_guard else None,
+                        "district": new_dist.strip() if new_dist else None,
+                        "locality": new_loc.strip() if new_loc else None,
+                        "incident_date": new_inc.strip() if new_inc else None,
+                        "record_date": new_rec.strip() if new_rec else None,
+                        "details": r.get("details"),
+                        "offense": r.get("offense")
+                    })
+                    st.markdown("---")
+
+                re_run_btn = st.form_submit_button("⚡ Re-Run Linkage Scoring", use_container_width=True)
+
+            sim_result = run_simulation(custom_records, custom_title=f"Customized {selected_title}")
+
+    with col_out:
+        st.markdown("### 📤 Case Output: Real-Time Linkage & Journey")
+        st.markdown("<div style='font-size: 0.85rem; color: #5F5F5F; margin-bottom: 12px;'>Scored through real Fellegi-Sunter model and journey pipeline.</div>", unsafe_allow_html=True)
+
+        # 1. Verdict Box
+        v_type = sim_result["verdict_type"]
+        v_colors = {
+            "success": ("#FDF2F4", "#8B1E3F", "✅"),
+            "warning": ("#FEF3C7", "#B45309", "🔻"),
+            "danger": ("#FEE2E2", "#DC2626", "🛡️"),
+            "review": ("#FFFBEB", "#D97706", "⚠️"),
+            "neutral": ("#F0ECE5", "#222222", "ℹ️")
+        }
+        bg_col, text_col, icon = v_colors.get(v_type, ("#F0ECE5", "#222222", "ℹ️"))
+
+        st.markdown(f"""
+            <div style="background: {bg_col}; border: 1px solid {text_col}; border-left: 5px solid {text_col}; border-radius: 4px; padding: 16px 18px; margin-bottom: 16px;">
+                <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 600; color: {text_col}; letter-spacing: 0.04em;">Judicial Linkage Verdict</div>
+                <div style="font-size: 1.15rem; font-weight: 700; color: {text_col}; margin-top: 2px;">{icon} {sim_result['verdict']}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # 2. "Why" Explanation
+        st.markdown(f"""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-bottom: 16px;">
+                <div style="font-size: 0.76rem; text-transform: uppercase; font-weight: 600; color: #5F5F5F; letter-spacing: 0.04em; margin-bottom: 4px;">Analytical Explanation ("Why")</div>
+                <div style="font-size: 0.88rem; color: #222222; line-height: 1.5;">{sim_result['why']}</div>
+                <div style="font-size: 0.75rem; color: #8C8C8C; margin-top: 8px; border-top: 1px solid #F0ECE5; padding-top: 6px;">
+                    ⚖️ <strong>Judicial Notice:</strong> All uncertain pairs (0.50 ≤ P < 0.85) require human reviewer adjudication. Algorithmic outputs provide policy and investigative evidence and do not constitute a legal conclusion.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # 3. Longitudinal Journey Timeline
+        st.markdown("#### ⏳ Reconstructed Journey Timeline")
+        journey = sim_result["journey"]
+        steps = journey["timeline_steps"]
+
+        for step in steps:
+            status = step["status"]
+            is_comp = status == "COMPLETED"
+            dot_color = "#8B1E3F" if is_comp else "#B45309"
+            badge_cls = "badge-privacy" if is_comp else "badge-critical"
+            date_display = f"🗓️ {step['date']}" if step['date'] else "❌ Not Recorded"
+
+            st.markdown(f"""
+                <div style="display: flex; align-items: flex-start; margin-bottom: 8px; padding: 8px 12px; background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid {dot_color}; border-radius: 4px;">
+                    <div style="flex-grow: 1;">
+                        <strong style="color: #222222; font-size: 0.88rem;">{step['stage']}</strong> &nbsp;
+                        <span class="badge {badge_cls}">{status}</span><br/>
+                        <span style="font-size: 0.78rem; color: #5F5F5F;">{date_display} | Record: <code>{step['record_id']}</code></span>
+                        {f'<div style="font-size: 0.75rem; color: #7F7F7F; margin-top: 2px;">{step["notes"]}</div>' if step["notes"] else ''}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        # Bottlenecks / Attrition flags
+        if journey["bottlenecks"]:
+            for bn in journey["bottlenecks"]:
+                st.markdown(f"""
+                    <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-left: 3px solid #B45309; border-radius: 4px; padding: 10px 12px; margin-top: 8px; margin-bottom: 8px; font-size: 0.82rem;">
+                        <strong style="color: #B45309;">⚠️ Policy Leak Point Flagged ({bn['code']}):</strong> {bn['title']}<br/>
+                        <span style="color: #5F5F5F;">{bn['detail']}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+        # 4. Pairwise Decisions Table
+        st.markdown("#### 🔗 Pairwise Linkage Decisions")
+        pw_results = sim_result["pairwise_results"]
+        if pw_results:
+            table_data = []
+            for p in pw_results:
+                table_data.append({
+                    "Record A": p["record_a"],
+                    "Record B": p["record_b"],
+                    "Match Probability": f"{p['match_probability']:.3f}",
+                    "Weight (Log-Odds)": f"{p['match_weight']:+.2f}",
+                    "Decision": "✅ AUTO_ACCEPT" if p["decision"] == "AUTO_ACCEPT" else ("⚠️ HUMAN_REVIEW" if p["decision"] == "HUMAN_REVIEW" else "❌ REJECT")
+                })
+            st.dataframe(pd.DataFrame(table_data), use_container_width=True)
+
+            # 5. Per-Field Evidence Accordion
+            st.markdown("#### 🔬 Per-Field Match Evidence (Log-Odds Contribution)")
+            for idx, p in enumerate(pw_results):
+                with st.expander(f"Evidence: {p['record_a']} ↔ {p['record_b']} ({p['decision']})", expanded=False):
+                    st.markdown(f"**Calculated Posterior Probability:** `{p['match_probability']:.3f}` | **Composite Match Weight:** `{p['match_weight']:+.2f}`")
+                    for ev in p["evidence"]:
+                        st_icon = "🟢" if ev["status"] == "AGREE" else ("🟡" if ev["status"] == "PARTIAL" else ("🔴" if ev["status"] == "DISAGREE" else "⚪"))
+                        st.markdown(f"- {st_icon} **{ev['field']}** ({ev['weight']:+.2f}): {ev['detail']}")
+        else:
+            st.info("No pairwise combinations available for single record.")
 
 
 # ==============================================================================
