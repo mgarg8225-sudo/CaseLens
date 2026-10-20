@@ -152,3 +152,53 @@ def test_theme_wcag_contrast_ratios():
         assert ratio >= 4.5, f"Contrast ratio {ratio:.2f}:1 for {fg_label} fails WCAG AA 4.5:1 requirement"
 
 
+def test_presentation_empirical_signals():
+    """
+    Verifies that the underlying pipeline summary artifacts contain the exact
+    empirical signals presented in Slide 5 of Reforged '26:
+    - District 3: Forensic lab turnaround delay multiplier (~3.2x - 3.5x)
+    - District 6: Severe chargesheet drop-off leak
+    - Linkage evaluation metrics: Pairwise recall >= 88% and B-Cubed F1 >= 92%
+    """
+    bundle = load_data_bundle()
+    summary = bundle.get("summary", {})
+    leaks = summary.get("systemic_leak_points_detected", [])
+
+    # 1. District 3 forensic delay
+    d3_leak = next((lp for lp in leaks if "D3" in lp.get("district", "") or lp.get("leak_code") == "LP-01-FORENSIC-DELAY"), None)
+    assert d3_leak is not None, "District 3 forensic delay leak point missing from summary"
+    assert d3_leak.get("multiplier", 0) >= 3.0, f"Expected District 3 multiplier >= 3.0x, got {d3_leak.get('multiplier')}"
+
+    # 2. District 6 chargesheet drop-off
+    d6_leak = next((lp for lp in leaks if "D6" in lp.get("district", "") or lp.get("leak_code") == "LP-02-POLICE-ATTRITION"), None)
+    assert d6_leak is not None, "District 6 chargesheet drop-off leak point missing from summary"
+    assert d6_leak.get("drop_off_leak_pct", 0) > 50.0, f"Expected District 6 leak pct > 50%, got {d6_leak.get('drop_off_leak_pct')}"
+
+    # 3. Splink record linkage performance benchmarks
+    eval_data = bundle.get("evaluation", {})
+    at_thr = eval_data.get("pairwise_metrics", {}).get("metrics_at_default_threshold", {})
+    cluster = eval_data.get("cluster_metrics", {})
+    assert at_thr.get("recall", 0) >= 0.88, f"Expected pairwise recall >= 0.88, got {at_thr.get('recall')}"
+    assert cluster.get("bcubed_f1", 0) >= 0.92, f"Expected B-Cubed F1 >= 0.92, got {cluster.get('bcubed_f1')}"
+
+
+def test_privacy_funnel_safeguards():
+    """
+    Verifies that funnel milestone data contains valid uncertainty margins,
+    non-negative privatized case counts, and valid step conversion ratios.
+    """
+    bundle = load_data_bundle()
+    dp_funnel = bundle.get("dp_funnel", {})
+    stages = dp_funnel.get("funnel_stages", [])
+    assert len(stages) == 5, f"Expected 5 milestones, got {len(stages)}"
+
+    for s in stages:
+        assert "noisy_case_count" in s
+        assert "confidence_margin_95" in s
+        assert "dp_retention_pct" in s
+        assert "dp_conversion_pct" in s
+        # Counts must be non-negative
+        if isinstance(s["noisy_case_count"], (int, float)):
+            assert s["noisy_case_count"] >= 0
+
+

@@ -1,29 +1,32 @@
 # CaseLens: The Leaky Pipeline
-### Survivor Confidentiality & Justice System Policy Intelligence
+### Tracing Gaps in the Justice System • Reforged '26 (Open Source Track)
 
-> *"The Leaky Pipeline"* — Diagnosing systemic attrition in violence-against-women cases across institutional silos without compromising survivor confidentiality.
+> **Syntax Squad**: Mehak Garg • Naina Shukla • Aarna Bansal • Sakshi Sharma  
+> **Mission**: Diagnosing systemic attrition in violence-against-women cases across fragmented institutional silos without compromising survivor confidentiality.  
+> **Global Alignment**: **UN SDG 5** (Gender Equality) & **UN SDG 16** (Peace, Justice and Strong Institutions).
+
+---
+
+## Reforged '26 Core Empirical Highlights
+
+CaseLens reconstructs longitudinal case journeys across 5 disconnected institutional silos (Police FIR, Hospital MLC, Forensic Science Laboratories, Prosecution, and District Courts). On synthetic data calibrated to public judicial statistics, CaseLens delivers:
+
+- **$\approx 3.2\times$ Forensic Latency Signal (District 3)**: Uncovers extreme lab turnaround bottlenecks (137.5 days vs 43.0 day baseline; 201 affected cases).
+- **Chargesheet Drop-Off Leak (District 6)**: Detects severe police-to-prosecution attrition where $72.2\%$ of cases leak out (only $27.8\%$ reaching court vs $59.0\%$ state benchmark).
+- **High-Precision Record Linkage (Splink)**: Achieves **$88.5\%$ Pairwise Recall** and **$92.9\%$ B-Cubed $F_1$** across 700K+ candidate pair evaluations.
+- **Survivor Confidentiality**: Enforces Pure Laplace Differential Privacy ($\epsilon$-DP), small-cell suppression ($k \ge 5$), and zero-PII security ledgers.
 
 ---
 
-## Overview
+## Technical Architecture & Workflow
 
-In the justice system, violence-against-women cases traverse fragmented, disconnected institutional silos:
-1. **Police Station** (FIR registration, Section 164 statements)
-2. **Hospital** (Medico-legal examination, MLC reports)
-3. **Forensic Science Laboratory (FSL)** (Biological evidence analysis, DNA profiling)
-4. **Prosecution Directorate** (Chargesheet vetting and trial readiness)
-5. **District Courts** (Trial proceedings, witness examinations, and verdicts)
+In accordance with the Reforged '26 architecture:
+1. **Ingest**: Approved records & metadata via FastAPI ingestion endpoints.
+2. **Normalize**: Standardization of names, transliteration variations, dates, and institutional schemas in DuckDB.
+3. **Match**: Probabilistic Fellegi-Sunter scoring (Splink) with Jaro-Winkler string distance and soundex phonetics.
+4. **Review**: Low-confidence candidate pairs ($0.70 \le \text{prob} < 0.85$) quarantined to the human review queue.
+5. **Map**: Chronological milestone reconstruction and differential-privacy aggregate reporting.
 
-Because these institutions maintain disparate records with no shared identifiers, cases routinely "drop out" unnoticed — creating an institutional **leaky pipeline**. 
-
-**CaseLens** solves this by combining:
-- **Fellegi-Sunter Probabilistic Record Linkage** (Splink): Reconstructs longitudinal case journeys across agencies without common case IDs.
-- **Pure Laplace Differential Privacy ($\epsilon$-DP)**: Adds calibrated noise to all aggregate queries so no individual survivor's presence or absence can be inferred.
-- **$k$-Anonymity Cell Suppression ($k \ge 5$)**: Masks small-cell slices to prevent singling-out and prosecutor re-identification attacks.
-- **Institutional Role-Based Access Control (RBAC)**: Enforces strict data governance, short-lived JWT sessions, account lockout defense, and an immutable zero-PII audit ledger.
-- **Judicial Case Simulator**: An interactive "What Goes In vs What Comes Out" laboratory demonstrating real-time linkage scoring, threshold mechanics, and journey reconstruction.
-
----
 
 ## Quickstart & How to Run
 

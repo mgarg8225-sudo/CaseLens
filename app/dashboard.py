@@ -45,7 +45,7 @@ from src.case_simulator import SCENARIOS, run_simulation
 
 # Configure Page Settings
 st.set_page_config(
-    page_title="CaseLens: The Leaky Pipeline",
+    page_title="CaseLens | The Leaky Pipeline: Tracing Gaps in the Justice System",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -329,14 +329,18 @@ def render_login_screen():
     """Renders the first-screen institutional authentication gateway."""
     with st.sidebar:
         st.markdown("""
-            <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
-                <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
-                <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">The Leaky Pipeline</div>
+            <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 14px;">
+                <div style="font-size: 1.15rem; font-weight: 700; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
+                <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
             </div>
-            <div style="font-size: 0.85rem; color: #5F5F5F; line-height: 1.5;">
-                Zero-PII Survivor Confidentiality & Judicial Policy Analytics.
+            <div style="font-size: 0.82rem; color: #5F5F5F; line-height: 1.5; margin-bottom: 8px;">
+                <strong>Syntax Squad</strong> • Reforged '26 (Open Source Track)
             </div>
-            <hr style="border: 0; border-top: 1px solid #E3DED6; margin: 16px 0;"/>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
+                <span class="badge badge-privacy">SDG 5: Gender Equality</span>
+                <span class="badge badge-normal">SDG 16: Strong Institutions</span>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #E3DED6; margin: 12px 0;"/>
             <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.6;">
                 🛡️ <strong>Argon2id</strong> Password Security<br/>
                 ⏱️ <strong>30-Min</strong> Short-Lived JWT<br/>
@@ -347,10 +351,15 @@ def render_login_screen():
 
     st.markdown("""
         <div class="hero-banner" style="text-align: center; margin-bottom: 24px;">
-            <div style="font-size: 1.35rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 4px;">CaseLens: The Leaky Pipeline</div>
-            <div style="font-size: 0.95rem; font-weight: 500; color: #222222; margin-bottom: 6px;">Violence-Against-Women Case Attrition Policy Intelligence</div>
-            <div style="font-size: 0.82rem; color: #5F5F5F;">
+            <div style="font-size: 1.45rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 4px;">CaseLens: The Leaky Pipeline</div>
+            <div style="font-size: 1.02rem; font-weight: 600; color: #222222; margin-bottom: 6px;">Tracing Gaps in the Justice System</div>
+            <div style="font-size: 0.85rem; color: #5F5F5F; margin-bottom: 12px;">
                 Multi-Agency Longitudinal Linkage with Mathematical Differential Privacy and Zero-PII Protections.
+            </div>
+            <div style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;">
+                <span class="badge badge-privacy">UN SDG 5: Gender Equality</span>
+                <span class="badge badge-normal">UN SDG 16: Peace, Justice & Strong Institutions</span>
+                <span class="badge badge-normal">Syntax Squad • Reforged '26</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -677,10 +686,13 @@ KPIS = compute_dashboard_kpis(DATA)
 
 with st.sidebar:
     st.markdown("""
-        <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
-            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
-            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; letter-spacing: 0.02em;">
-                The Leaky Pipeline
+        <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 14px;">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
+            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600; letter-spacing: 0.01em;">
+                The Leaky Pipeline: Tracing Gaps in the Justice System
+            </div>
+            <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 4px;">
+                Syntax Squad • Reforged '26 (Open Source)
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -779,12 +791,15 @@ if PAGE == "📊 Executive Overview":
         <div class="hero-banner">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
                 <div>
-                    <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
-                    <div style="font-size: 0.85rem; color: #8B1E3F; font-weight: 600; margin-bottom: 12px;">The Leaky Pipeline</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+                    <div style="font-size: 0.88rem; color: #8B1E3F; font-weight: 600; margin-bottom: 4px;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
+                    <div style="font-size: 0.75rem; color: #5F5F5F; margin-bottom: 10px;">Syntax Squad • Reforged '26 (Open Source Track)</div>
                 </div>
-                <div style="display: flex; gap: 8px; align-items: center; padding-top: 4px;">
+                <div style="display: flex; gap: 6px; align-items: center; padding-top: 4px; flex-wrap: wrap;">
+                    <span class="badge badge-privacy">UN SDG 5</span>
+                    <span class="badge badge-normal">UN SDG 16</span>
                     <span class="badge badge-privacy">ε-DP Laplace Protected</span>
-                    <span class="badge badge-normal">Zero-PII Guaranteed</span>
+                    <span class="badge badge-normal">Zero-PII Verified</span>
                     <span class="badge badge-critical">15 Policy Leaks Flagged</span>
                 </div>
             </div>
@@ -834,6 +849,36 @@ if PAGE == "📊 Executive Overview":
                 <div class="metric-label">Policy Leak Points</div>
                 <div class="metric-value">{KPIS['leak_count_display']} Critical</div>
                 <div class="metric-delta">{KPIS['leak_districts_display']} Anomalies</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("<br/>", unsafe_allow_html=True)
+
+    # Reforged '26 Key Presentation Impact Signals (Slide 5)
+    st.markdown("### 🎯 Reforged '26 Key Empirical Findings")
+    sig1, sig2, sig3 = st.columns(3)
+    with sig1:
+        st.markdown("""
+            <div class="metric-card" style="border-left: 3px solid #B45309;">
+                <div class="metric-label">Forensic Latency Spike (District 3)</div>
+                <div class="metric-value" style="color: #B45309;">≈ 3.2× Delay</div>
+                <div class="metric-delta">137.5d vs 43.0d baseline (201 cases)</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with sig2:
+        st.markdown("""
+            <div class="metric-card" style="border-left: 3px solid #B45309;">
+                <div class="metric-label">Chargesheet Drop-Off (District 6)</div>
+                <div class="metric-value" style="color: #B45309;">72.2% Leak</div>
+                <div class="metric-delta">Only 27.8% reach court (vs 59.0% state avg)</div>
+            </div>
+        """, unsafe_allow_html=True)
+    with sig3:
+        st.markdown("""
+            <div class="metric-card" style="border-left: 3px solid #8B1E3F;">
+                <div class="metric-label">Record Linkage Benchmark (Splink)</div>
+                <div class="metric-value" style="color: #8B1E3F;">88.5% / 92.9%</div>
+                <div class="metric-delta">Recall / B-Cubed F1 on synthetic data</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -905,43 +950,45 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
     if not funnel_stages:
         st.warning("Funnel analytical data not loaded. Please ensure analytics pipeline has run.")
     else:
-        # Toggle options
-        ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([3, 3, 4])
+        # Analytical guardrail callout
+        st.markdown("""
+            <div class="callout-info" style="border-left-color: #8B1E3F; margin-bottom: 16px;">
+                <strong>⚖️ Institutional Data Lineage & Guardrail:</strong>
+                Missing records between stages (e.g. absent hospital MLC or forensic report) 
+                <strong>must not be interpreted as definitive proof that the event never occurred</strong>. 
+                Decentralized paper registries, manual data entry lags, and institutional silo barriers 
+                account for tracking gaps. All milestone statistics are mathematically privatized with 
+                Laplace Differential Privacy noise and small-cell k-anonymity suppression (&lt;k).
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Confidence level selector & privacy parameters
+        ctrl_col1, ctrl_col2 = st.columns([4, 6])
         with ctrl_col1:
-            SHOW_RAW = st.toggle("Show Raw vs DP Noisy Overlay", value=True)
-        with ctrl_col2:
             CONF_LEVEL = st.selectbox("Confidence Level", ["95% Confidence Interval", "99% Confidence Interval"], index=0)
-        with ctrl_col3:
+        with ctrl_col2:
             st.markdown(f"""
-                <div style="padding-top: 6px; font-size: 0.85rem; color: #5F5F5F;">
-                    <strong>Privacy Mechanism:</strong> Laplace (&Delta;f=1, &epsilon;={EPSILON_SIM:.2f})
+                <div style="padding-top: 8px; font-size: 0.85rem; color: #5F5F5F;">
+                    <strong>Privacy Mechanism:</strong> Pure Laplace Mechanism (&Delta;f=1, &epsilon;={EPSILON_SIM:.2f}) with small-cell suppression (k&ge;{K_ANONYMITY})
                 </div>
             """, unsafe_allow_html=True)
 
-        # Plotly Funnel Chart with Error Bars
+        # Plotly Funnel Chart with Differential Privacy Error Bars
         stage_names = [s["stage_name"] for s in funnel_stages]
         noisy_counts = [s["noisy_case_count"] if isinstance(s["noisy_case_count"], (int, float)) else 0 for s in funnel_stages]
-        raw_counts = [s.get("raw_case_count", 0) for s in funnel_stages]
+        
+        # Calculate dynamic CI based on selected confidence level and epsilon
+        scale_b = 1.0 / max(EPSILON_SIM, 0.01)
+        ci_mult = -math.log(0.01) if "99%" in CONF_LEVEL else -math.log(0.05)
         err_margins = [
-            _num(s.get("confidence_margin_95")) if _num(s.get("confidence_margin_95")) is not None else 0.0
+            round(scale_b * ci_mult, 1) if isinstance(s["noisy_case_count"], (int, float)) else 0.0
             for s in funnel_stages
         ]
 
         fig_funnel = go.Figure()
 
-        if SHOW_RAW:
-            fig_funnel.add_trace(go.Bar(
-                name="Raw Ground Truth (Silo Unsanitized)",
-                x=stage_names,
-                y=raw_counts,
-                marker_color="#BDBDBD",
-                opacity=0.8,
-                text=raw_counts,
-                textposition="auto"
-            ))
-
         fig_funnel.add_trace(go.Bar(
-            name=f"Differentially Private Estimate (ε={EPSILON_SIM})",
+            name=f"Privatized Volume (ε={EPSILON_SIM:.2f})",
             x=stage_names,
             y=noisy_counts,
             error_y=dict(type='data', array=err_margins, visible=True, color="#8B1E3F", thickness=1.5, width=4),
@@ -955,25 +1002,24 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
 
         fig_funnel.update_layout(
             get_plot_layout(),
-            title="Institutional Stage Volume with 95% Differential Privacy Confidence Margins",
-            barmode="group" if SHOW_RAW else "relative",
+            title=f"Institutional Stage Volume with {CONF_LEVEL} (Differential Privacy)",
+            barmode="relative",
             yaxis_title="Case Volume",
             xaxis_title="Institutional Milestone"
         )
         st.plotly_chart(fig_funnel, width="stretch")
 
-        # Stage Breakdown Table
+        # Stage Breakdown Table (Privatized Aggregates Only)
         st.markdown("### 📋 Milestone-by-Milestone Attrition Accounting")
         table_rows = []
-        for s in funnel_stages:
+        for idx, s in enumerate(funnel_stages):
             table_rows.append({
                 "Milestone": s["stage_name"],
-                "Raw Cases": f"{s.get('raw_case_count', 0):,}",
-                "DP Noisy Count": s["noisy_case_count"],
-                "95% Error Bound": f"±{s['confidence_margin_95']}" if _num(s.get("confidence_margin_95")) is not None else "Suppressed",
+                "Privatized Case Volume (DP)": f"{noisy_counts[idx]:,}",
+                f"Error Margin ({CONF_LEVEL.split()[0]})": f"±{err_margins[idx]:.1f}" if not s.get("is_k_anonymity_suppressed") else "Suppressed",
                 "Cumulative Retention": fmt_pct(s.get("dp_retention_pct")),
                 "Step Conversion": fmt_pct(s.get("dp_conversion_pct")),
-                "k-Suppressed (<5)": "⚠️ Masked" if s.get("is_k_anonymity_suppressed") else "✅ Compliant"
+                f"k-Suppressed (<{K_ANONYMITY})": "⚠️ Masked" if s.get("is_k_anonymity_suppressed") else "✅ Compliant"
             })
         st.dataframe(pd.DataFrame(table_rows), width="stretch")
 
