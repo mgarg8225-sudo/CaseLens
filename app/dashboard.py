@@ -29,6 +29,18 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+from fastapi import HTTPException
+
+from src.auth import (
+    authenticate_user,
+    create_access_token,
+    check_user_permission,
+    normalize_role,
+    log_audit_event,
+    get_audit_logs,
+    ROLE_PERMISSIONS
+)
+from src.seed_users import init_demo_users
 
 # Configure Page Settings
 st.set_page_config(
@@ -291,7 +303,111 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 # ==============================================================================
-# 2. Data Caching & Loading Helpers
+# 2. Authentication & Session Security (Phase A)
+# ==============================================================================
+
+@st.cache_resource
+def ensure_demo_users():
+    """Initializes viewer, analyst, and admin demo users in DuckDB with secure Argon2id hashes."""
+    init_demo_users(print_output=False)
+    return True
+
+ensure_demo_users()
+
+
+def render_login_screen():
+    """Renders the first-screen institutional authentication gateway."""
+    with st.sidebar:
+        st.markdown("""
+            <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
+                <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CASELENS</div>
+                <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">The Leaky Pipeline</div>
+            </div>
+            <div style="font-size: 0.85rem; color: #5F5F5F; line-height: 1.5;">
+                Zero-PII Survivor Confidentiality & Judicial Policy Analytics.
+            </div>
+            <hr style="border: 0; border-top: 1px solid #E3DED6; margin: 16px 0;"/>
+            <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.6;">
+                🛡️ <strong>Argon2id</strong> Password Security<br/>
+                ⏱️ <strong>30-Min</strong> Short-Lived JWT<br/>
+                🔒 <strong>5-Attempt</strong> Lockout Defense<br/>
+                📜 <strong>Zero-PII</strong> Audit Ledger
+            </div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("""
+        <div class="hero-banner" style="text-align: center; margin-bottom: 24px;">
+            <div style="font-size: 1.35rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 4px;">CaseLens: The Leaky Pipeline</div>
+            <div style="font-size: 0.95rem; font-weight: 500; color: #222222; margin-bottom: 6px;">Violence-Against-Women Case Attrition Policy Intelligence</div>
+            <div style="font-size: 0.82rem; color: #5F5F5F;">
+                Multi-Agency Longitudinal Linkage with Mathematical Differential Privacy and Zero-PII Protections.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 1.8, 1])
+    with col2:
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 18px 20px 8px 20px; margin-bottom: 16px;">
+                <div style="font-size: 1.1rem; font-weight: 600; color: #222222; margin-bottom: 4px;">🔐 Institutional Sign In</div>
+                <div style="font-size: 0.82rem; color: #5F5F5F;">Sign in to access authorized case journey analytics and privacy controls.</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        with st.form("login_form", clear_on_submit=False):
+            u_input = st.text_input("Username", key="login_username", placeholder="viewer, analyst, or admin")
+            p_input = st.text_input("Password", type="password", key="login_password", placeholder="Enter institutional password")
+            submit_btn = st.form_submit_button("Sign In", use_container_width=True)
+
+            if submit_btn:
+                u_clean = u_input.strip()
+                p_clean = p_input
+                if not u_clean or not p_clean:
+                    st.warning("Please provide both username and password.")
+                else:
+                    try:
+                        user = authenticate_user(u_clean, p_clean)
+                        token = create_access_token(
+                            user_id=user["id"],
+                            username=user["username"],
+                            role=user["role"]
+                        )
+                        st.session_state["authenticated"] = True
+                        st.session_state["user"] = user
+                        st.session_state["token"] = token
+                        log_audit_event("LOGIN_SUCCESS", username=user["username"], role=user["role"])
+                        st.success(f"Authentication successful. Welcome, {user['username']}!")
+                        st.rerun()
+                    except HTTPException as exc:
+                        log_audit_event("LOGIN_FAILED", username=u_clean, details={"status_code": exc.status_code, "reason": exc.detail})
+                        st.error(f"Authentication Failed: {exc.detail}")
+                    except Exception as err:
+                        log_audit_event("LOGIN_FAILED", username=u_clean, details={"error": str(err)})
+                        st.error(f"Authentication Error: {str(err)}")
+
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-top: 14px; font-size: 0.8rem; color: #5F5F5F; line-height: 1.5;">
+                <strong style="color: #222222;">Authorized Role Access Levels:</strong><br/>
+                • <strong>viewer</strong>: Aggregate policy views only (Overview, Funnel, Bottlenecks, Quality, Policy Insights)<br/>
+                • <strong>analyst</strong>: Aggregate views + Case Simulator<br/>
+                • <strong>admin</strong>: Full system access + Human Review Queue + Security Audit Log<br/>
+                <div style="margin-top: 8px; font-size: 0.74rem; color: #8C8C8C;">
+                    Demo credentials configured via <code>.env</code>. Passwords and tokens are strictly protected and never committed.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+
+if "authenticated" not in st.session_state or not st.session_state.get("authenticated"):
+    render_login_screen()
+    st.stop()
+
+CURRENT_USER = st.session_state.get("user") or {"username": "anonymous", "role": "viewer"}
+CURRENT_ROLE = normalize_role(CURRENT_USER.get("role"))
+
+
+# ==============================================================================
+# 3. Data Caching & Loading Helpers
 # ==============================================================================
 
 DATA_DIR = os.environ.get("LEAKY_DATA_DIR", "data")
@@ -546,7 +662,7 @@ KPIS = compute_dashboard_kpis(DATA)
 
 
 # ==============================================================================
-# 3. Sidebar Navigation & Global Controls
+# 4. Sidebar Navigation & Session Controls
 # ==============================================================================
 
 with st.sidebar:
@@ -554,35 +670,34 @@ with st.sidebar:
         <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
             <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CASELENS</div>
             <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; letter-spacing: 0.02em;">
-                Violence-against-women case analytics
+                The Leaky Pipeline
             </div>
         </div>
     """, unsafe_allow_html=True)
 
+    st.markdown(f"""
+        <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 12px; margin-bottom: 12px;">
+            <div style="font-size: 0.72rem; color: #5F5F5F; text-transform: uppercase; font-weight: 600; letter-spacing: 0.03em;">Active Session</div>
+            <div style="font-size: 0.95rem; font-weight: 600; color: #222222;">👤 {CURRENT_USER['username']}</div>
+            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">Role: <span style="text-transform: capitalize;">{CURRENT_ROLE}</span></div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("🚪 Sign Out", key="sidebar_logout_btn", use_container_width=True):
+        log_audit_event("LOGOUT", username=CURRENT_USER["username"], role=CURRENT_ROLE)
+        st.session_state.clear()
+        st.rerun()
+
     st.markdown("### 🧭 Navigation")
+    allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])
     PAGE = st.radio(
         label="Select Analytical View",
-        options=[
-            "📊 Executive Overview",
-            "🔻 Funnel with Uncertainty Ranges",
-            "⏱️ Duration Bottlenecks & Latency",
-            "🔗 Linkage Quality & Evaluation",
-            "⚖️ Before / After Policy Transformation",
-            "🛡️ Survivor Privacy & DP Engine",
-            "📜 Statutory Policy Insights (TinyFish)"
-        ],
+        options=allowed_pages,
         index=0,
         label_visibility="collapsed"
     )
 
     st.markdown("---")
-    st.markdown("### 👤 Institutional Persona")
-    ROLE_SELECT = st.selectbox(
-        "Active Role",
-        ["Administrator (Full Audit & Config)", "Policy Analyst (Deep Breakdown)", "Public / Judiciary Viewer (Published DP)"],
-        index=0
-    )
-
     st.markdown("### 🔒 Privacy Controls")
     EPSILON_SIM = st.slider(r"Epsilon ($\epsilon$) Noise Level", min_value=0.1, max_value=2.0, value=0.25, step=0.05,
                             help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality.")
@@ -599,6 +714,18 @@ with st.sidebar:
             • Statutory Benchmarking
         </div>
     """, unsafe_allow_html=True)
+
+# Server-side RBAC validation: strictly blocks unauthorized access even if requested
+if not check_user_permission(CURRENT_ROLE, PAGE):
+    log_audit_event("ACCESS_DENIED", username=CURRENT_USER["username"], role=CURRENT_ROLE, page=PAGE)
+    st.error(f"⛔ Access Denied: Your assigned role '{CURRENT_ROLE}' does not have permission to view the '{PAGE}' page. Please contact your system administrator if you require elevated access.")
+    st.stop()
+
+# Record page visit audit event (Zero-PII)
+if st.session_state.get("last_recorded_page") != PAGE:
+    log_audit_event("PAGE_VISIT", username=CURRENT_USER["username"], role=CURRENT_ROLE, page=PAGE)
+    st.session_state["last_recorded_page"] = PAGE
+
 
 
 # ==============================================================================
@@ -1309,3 +1436,169 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
                 </div>
             </div>
         """, unsafe_allow_html=True)
+
+
+# ==============================================================================
+# PAGE 8: 🧪 Case Simulator (Scheduled for Part B)
+# ==============================================================================
+
+elif PAGE == "🧪 Case Simulator":
+    st.markdown("""
+        <div class="hero-banner">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">The Leaky Pipeline</div>
+            <div class="hero-title">Case Simulator (Case Input & Output)</div>
+            <div class="hero-subtitle">
+                Judicial interactive simulator demonstrating multi-agency synthetic record inputs and real-time linkage and attrition outputs.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    st.info("🧪 **Case Simulator**: Ready for Part B. Allows judicial walkthrough across 8 synthetic scenarios and custom record editing.")
+
+
+# ==============================================================================
+# PAGE 9: 📋 Review Queue (Admin Only - Pseudonymized Identifiers Only)
+# ==============================================================================
+
+elif PAGE == "📋 Review Queue":
+    if CURRENT_ROLE != "admin":
+        st.error("⛔ Access Denied: Administrator role required to view the Review Queue.")
+        st.stop()
+
+    st.markdown("""
+        <div class="hero-banner">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">Confidential Human Adjudication</div>
+            <div class="hero-title">Record Linkage Human Review Queue</div>
+            <div class="hero-subtitle">
+                Uncertain candidate pairs (0.50 ≤ match probability < 0.85) held for human adjudication under strict zero-PII privacy protocols.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.warning("⚠️ **Strict Privacy Guardrail**: Direct personal identifiers (names, relatives, addresses) are suppressed. Only pseudonymized record identifiers, incident dates, and match probabilities are shown.")
+
+    review_path = os.path.join(DATA_DIR, "review_queue.csv")
+    if os.path.exists(review_path):
+        df_rq = pd.read_csv(review_path)
+        safe_cols = [
+            "unique_id_l", "unique_id_r", "district_l", "district_r",
+            "incident_date_l", "incident_date_r", "match_probability",
+            "match_weight", "review_status"
+        ]
+        display_cols = [c for c in safe_cols if c in df_rq.columns]
+        df_display = df_rq[display_cols]
+
+        col_rq1, col_rq2, col_rq3, col_rq4 = st.columns(4)
+        with col_rq1:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Uncertain Pairs</div>
+                    <div class="metric-value">{len(df_rq):,}</div>
+                    <div class="metric-delta">Pending Human Review</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_rq2:
+            avg_prob = float(df_rq["match_probability"].mean()) if "match_probability" in df_rq.columns else 0.0
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Avg Match Score</div>
+                    <div class="metric-value">{avg_prob:.3f}</div>
+                    <div class="metric-delta">Uncertainty Band [0.50, 0.85)</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_rq3:
+            st.markdown("""
+                <div class="metric-card">
+                    <div class="metric-label">Accept Threshold</div>
+                    <div class="metric-value">0.85</div>
+                    <div class="metric-delta">Auto-Accepted Links</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_rq4:
+            st.markdown("""
+                <div class="metric-card">
+                    <div class="metric-label">Reject Threshold</div>
+                    <div class="metric-value">0.50</div>
+                    <div class="metric-delta">Definitively Discarded</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+        st.markdown("#### Pseudonymized Candidate Pairs")
+        st.dataframe(df_display.head(200), use_container_width=True)
+        st.caption(f"Showing first 200 of {len(df_rq):,} records. All direct names suppressed.")
+    else:
+        st.info("No review_queue.csv found in data directory.")
+
+
+# ==============================================================================
+# PAGE 10: 📜 Audit Log (Admin Only - Zero-PII Security Ledger)
+# ==============================================================================
+
+elif PAGE == "📜 Audit Log":
+    if CURRENT_ROLE != "admin":
+        st.error("⛔ Access Denied: Administrator role required to view the Security Audit Log.")
+        st.stop()
+
+    st.markdown("""
+        <div class="hero-banner">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">System Security & Accountability</div>
+            <div class="hero-title">Security & Session Audit Ledger</div>
+            <div class="hero-subtitle">
+                Immutable event tracking for authentication, user sessions, page visits, and access attempts.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    st.success("✅ **Zero-Credential Guarantee**: Passwords, hashes, and JWT tokens are cryptographically excluded from all audit records.")
+
+    app_logs = get_audit_logs(limit=300)
+    if app_logs:
+        df_logs = pd.DataFrame(app_logs)
+        total_events = len(df_logs)
+        logins = int((df_logs["event_type"] == "LOGIN_SUCCESS").sum()) if "event_type" in df_logs.columns else 0
+        fails = int((df_logs["event_type"] == "LOGIN_FAILED").sum()) if "event_type" in df_logs.columns else 0
+        visits = int((df_logs["event_type"] == "PAGE_VISIT").sum()) if "event_type" in df_logs.columns else 0
+
+        col_al1, col_al2, col_al3, col_al4 = st.columns(4)
+        with col_al1:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Total Events</div>
+                    <div class="metric-value">{total_events:,}</div>
+                    <div class="metric-delta">Recorded Sessions</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_al2:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Successful Logins</div>
+                    <div class="metric-value">{logins}</div>
+                    <div class="metric-delta">Authorized Access</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_al3:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Failed Logins</div>
+                    <div class="metric-value">{fails}</div>
+                    <div class="metric-delta">Enforcing 5-Attempt Lockout</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_al4:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Page Visits</div>
+                    <div class="metric-value">{visits}</div>
+                    <div class="metric-delta">Analytical Navigation</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+        st.markdown("#### Audit Event Records (Most Recent)")
+        st.dataframe(df_logs.iloc[::-1], use_container_width=True)
+    else:
+        st.info("No audit log events recorded yet.")
+

@@ -1,0 +1,36 @@
+[
+  {
+    "timestamp": "2026-10-20T10:42:32.283100+00:00",
+    "event_type": "TEST_EVENT",
+    "username": "viewer",
+    "role": "viewer",
+    "page": "Overview",
+    "details": {
+      "status": "ok"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T10:49:44.787696+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T10:52:00.658635+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T10:54:05.820088+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  }
+]

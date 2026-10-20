@@ -13,6 +13,7 @@ Phase A of CaseLens Security Architecture:
 
 import os
 import re
+import json
 import uuid
 import threading
 from datetime import datetime, timedelta, timezone
@@ -41,6 +42,9 @@ VALID_ROLES: List[str] = [
     "public_viewer",
     "admin"
 ]
+
+APP_ROLES: List[str] = ["viewer", "analyst", "admin"]
+ALL_VALID_ROLES: List[str] = VALID_ROLES + ["viewer", "analyst"]
 
 AGENCY_ROLES: List[str] = [
     "police",
@@ -290,10 +294,10 @@ def create_user_record(
         )
 
     role_clean = role.strip().lower()
-    if role_clean not in VALID_ROLES:
+    if role_clean not in ALL_VALID_ROLES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid role '{role}'. Allowed roles: {', '.join(VALID_ROLES)}"
+            detail=f"Invalid role '{role}'. Allowed roles: {', '.join(ALL_VALID_ROLES)}"
         )
 
     # Agency auto-alignment
@@ -618,3 +622,148 @@ def activate_user(
 ):
     """Admin-only endpoint to reactivate an account."""
     return set_user_active_status(user_id, is_active=True)
+
+
+# ==============================================================================
+# 8. Role-Based Access Control (RBAC) & Audit Logging
+# ==============================================================================
+
+ROLE_PERMISSIONS: Dict[str, List[str]] = {
+    "viewer": [
+        "📊 Executive Overview",
+        "🔻 Funnel with Uncertainty Ranges",
+        "⏱️ Duration Bottlenecks & Latency",
+        "🔗 Linkage Quality & Evaluation",
+        "📜 Statutory Policy Insights (TinyFish)"
+    ],
+    "analyst": [
+        "📊 Executive Overview",
+        "🔻 Funnel with Uncertainty Ranges",
+        "⏱️ Duration Bottlenecks & Latency",
+        "🔗 Linkage Quality & Evaluation",
+        "⚖️ Before / After Policy Transformation",
+        "🛡️ Survivor Privacy & DP Engine",
+        "📜 Statutory Policy Insights (TinyFish)",
+        "🧪 Case Simulator"
+    ],
+    "admin": [
+        "📊 Executive Overview",
+        "🔻 Funnel with Uncertainty Ranges",
+        "⏱️ Duration Bottlenecks & Latency",
+        "🔗 Linkage Quality & Evaluation",
+        "⚖️ Before / After Policy Transformation",
+        "🛡️ Survivor Privacy & DP Engine",
+        "📜 Statutory Policy Insights (TinyFish)",
+        "🧪 Case Simulator",
+        "📋 Review Queue",
+        "📜 Audit Log"
+    ]
+}
+
+
+def normalize_role(role: Optional[str]) -> str:
+    """Maps arbitrary or legacy role names to standard viewer, analyst, admin."""
+    if not role:
+        return "viewer"
+    r = str(role).strip().lower()
+    if r in ["admin", "administrator"]:
+        return "admin"
+    if r in ["analyst", "linkage_reviewer"]:
+        return "analyst"
+    if r in ["viewer", "public_viewer", "police", "hospital", "forensic", "prosecutor", "court", "auditor"]:
+        if r == "auditor":
+            return "admin"
+        return "viewer"
+    return "viewer"
+
+
+def check_user_permission(role: Optional[str], page: str) -> bool:
+    """
+    Enforces server-side RBAC.
+    Returns True if the role is allowed to view the requested page, False otherwise.
+    """
+    norm_r = normalize_role(role)
+    allowed = ROLE_PERMISSIONS.get(norm_r, ROLE_PERMISSIONS["viewer"])
+    if page in allowed:
+        return True
+    page_clean = re.sub(r"[^\w\s]", "", page).strip().lower()
+    for allowed_p in allowed:
+        p_clean = re.sub(r"[^\w\s]", "", allowed_p).strip().lower()
+        if page_clean == p_clean or page_clean in p_clean or p_clean in page_clean:
+            return True
+    return False
+
+
+APP_AUDIT_LOG_PATH = os.path.join(os.environ.get("LEAKY_DATA_DIR", "data"), "app_audit_log.json")
+_audit_file_lock = threading.Lock()
+
+
+def log_audit_event(
+    event_type: str,
+    username: str,
+    role: Optional[str] = None,
+    page: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+    log_path: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Records security, authentication, and navigation events to the audit ledger.
+    STRICT PRIVACY GUARANTEE: Passwords, password hashes, secrets, and JWT tokens
+    are NEVER logged under any circumstance.
+    """
+    path = log_path or APP_AUDIT_LOG_PATH
+    now = datetime.now(timezone.utc).isoformat()
+
+    clean_details = {}
+    if details and isinstance(details, dict):
+        for k, v in details.items():
+            k_low = str(k).lower()
+            if any(forbidden in k_low for forbidden in ["password", "token", "secret", "hash", "key", "auth"]):
+                continue
+            clean_details[k] = str(v)
+
+    entry = {
+        "timestamp": now,
+        "event_type": event_type,
+        "username": str(username).strip(),
+        "role": str(role).strip() if role else None,
+        "page": str(page).strip() if page else None,
+        "details": clean_details
+    }
+
+    with _audit_file_lock:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        logs = []
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+                    if not isinstance(logs, list):
+                        logs = []
+            except Exception:
+                logs = []
+
+        logs.append(entry)
+        if len(logs) > 5000:
+            logs = logs[-5000:]
+
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2)
+
+    return entry
+
+
+def get_audit_logs(limit: int = 100, log_path: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Retrieves recent audit log entries."""
+    path = log_path or APP_AUDIT_LOG_PATH
+    with _audit_file_lock:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    logs = json.load(f)
+                    if isinstance(logs, list):
+                        return logs[-limit:]
+            except Exception:
+                return []
+    return []
+
