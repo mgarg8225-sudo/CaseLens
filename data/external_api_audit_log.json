@@ -1522,5 +1522,83 @@
     "endpoint": "agent",
     "query": "Extract POCSO Act statutory enactment and timeline",
     "status": "AGENT_SUCCESS"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:44.026408+00:00",
+    "endpoint": "search",
+    "query": "India court trial delay pendency POCSO fast track special courts disposal timeline",
+    "status": "ATTEMPT_1"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:44.028521+00:00",
+    "endpoint": "fetch",
+    "query": "FETCH: https://pib.gov.in/PressReleasePage.aspx?PRID=12345,https://lawcommissionofindia.nic.in/reports/report.pdf",
+    "status": "FETCH_ATTEMPT"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:44.031458+00:00",
+    "endpoint": "search",
+    "query": "India court trial delay pendency POCSO fast track special courts disposal timeline",
+    "status": "SUCCESS"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:44.036914+00:00",
+    "endpoint": "search",
+    "query": "India survivor victim compensation scheme NALSA disbursal delay interim relief",
+    "status": "ATTEMPT_1"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:44.540173+00:00",
+    "endpoint": "search",
+    "query": "India survivor victim compensation scheme NALSA disbursal delay interim relief",
+    "status": "ATTEMPT_2"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.042792+00:00",
+    "endpoint": "search",
+    "query": "India survivor victim compensation scheme NALSA disbursal delay interim relief",
+    "status": "ATTEMPT_3"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.044938+00:00",
+    "endpoint": "fetch",
+    "query": "FETCH: https://nalsa.gov.in/scheme",
+    "status": "FETCH_ATTEMPT"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.048112+00:00",
+    "endpoint": "search",
+    "query": "India survivor victim compensation scheme NALSA disbursal delay interim relief",
+    "status": "SUCCESS"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.052614+00:00",
+    "endpoint": "search",
+    "query": "India forensic science laboratory turnaround delay backlog policy guidelines POCSO CrPC",
+    "status": "ATTEMPT_1"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.055318+00:00",
+    "endpoint": "search",
+    "query": "India forensic science laboratory turnaround delay backlog policy guidelines POCSO CrPC",
+    "status": "ATTEMPT_2"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.057155+00:00",
+    "endpoint": "search",
+    "query": "India forensic science laboratory turnaround delay backlog policy guidelines POCSO CrPC",
+    "status": "ATTEMPT_3"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.066467+00:00",
+    "endpoint": "agent",
+    "query": "Extract POCSO Act statutory enactment and timeline",
+    "status": "AGENT_RUN"
+  },
+  {
+    "timestamp": "2026-10-20T10:55:45.068534+00:00",
+    "endpoint": "agent",
+    "query": "Extract POCSO Act statutory enactment and timeline",
+    "status": "AGENT_SUCCESS"
   }
 ]

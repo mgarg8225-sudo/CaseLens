@@ -32,5 +32,205 @@
     "role": "viewer",
     "page": "\ud83d\udcca Executive Overview",
     "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T10:55:31.557196+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T11:04:46.101311+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin_demo",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:07:25.689404+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin_demo",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:07:28.573132+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin_demo",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:07:32.040759+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin_demo",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:08:37.740981+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:08:40.504666+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:08:40.613884+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:08:40.925694+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:08:50.663720+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:17:02.517074+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "viewer",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:17:04.303147+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "viewer",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:28:55.643142+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:29:00.068156+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:29:01.280202+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:30:28.885580+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "401",
+      "reason": "Invalid username or password."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:30:30.523292+00:00",
+    "event_type": "LOGIN_FAILED",
+    "username": "admin",
+    "role": null,
+    "page": null,
+    "details": {
+      "status_code": "403",
+      "reason": "Account has been locked for 15 minutes due to 5 failed login attempts."
+    }
+  },
+  {
+    "timestamp": "2026-10-20T11:31:45.648658+00:00",
+    "event_type": "LOGIN_SUCCESS",
+    "username": "analyst",
+    "role": "analyst",
+    "page": null,
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T11:31:45.787362+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "analyst",
+    "role": "analyst",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
   }
 ]
