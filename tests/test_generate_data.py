@@ -73,6 +73,14 @@ def test_agency_schemas(sample_dataset):
     assert "complainant_name" in fir_df.columns and "fir_date" in fir_df.columns
     assert "patient_name" in mlc_df.columns and "examination_date" in mlc_df.columns
     assert "subject_name" in fsl_df.columns and "report_dispatch_date" in fsl_df.columns
+    assert "incident_date" in fsl_df.columns, "FSL rows must carry incident_date, distinct from sample receipt"
+    assert "sample_receipt_date" in fsl_df.columns
+    fsl_with_both = fsl_df.dropna(subset=["incident_date", "sample_receipt_date"])
+    assert len(fsl_with_both) > 0
+    copied = (
+        fsl_with_both["incident_date"].astype(str) == fsl_with_both["sample_receipt_date"].astype(str)
+    ).all()
+    assert not copied, "FSL incident_date must not be a copy of sample_receipt_date"
     assert "victim_name" in pros_df.columns and "chargesheet_date" in pros_df.columns
     assert "petitioner_victim" in court_df.columns and "verdict_date" in court_df.columns
 

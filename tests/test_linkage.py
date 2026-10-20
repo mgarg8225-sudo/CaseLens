@@ -80,6 +80,24 @@ def test_load_and_harmonize_records(setup_test_linkage_data):
     # Privacy check: No case_id leakage
     assert "case_id" not in df_harm.columns
 
+    # FSL incident_date must be the incident, not sample receipt; record_date is dispatch
+    df_fsl_raw = pd.read_csv(os.path.join(setup_test_linkage_data, "forensic_lab.csv"))
+    assert "incident_date" in df_fsl_raw.columns
+    fsl_harm = df_harm[df_harm["source_agency"] == "forensic_lab"].copy()
+    assert len(fsl_harm) == len(df_fsl_raw)
+    fsl_merged = fsl_harm.merge(
+        df_fsl_raw,
+        left_on="record_id",
+        right_on="fsl_case_number",
+        suffixes=("_harm", "_raw"),
+    )
+    assert (fsl_merged["incident_date_harm"].astype(str) == fsl_merged["incident_date_raw"].astype(str)).all()
+    copied_receipt = (
+        fsl_merged["incident_date_harm"].astype(str) == fsl_merged["sample_receipt_date"].astype(str)
+    ).all()
+    assert not copied_receipt, "Harmonized FSL incident_date must not be sample_receipt_date"
+    assert (fsl_merged["record_date"].astype(str) == fsl_merged["report_dispatch_date"].astype(str)).all()
+
 
 def test_linkage_pipeline_execution(setup_test_linkage_data):
     """Tests the full Splink linkage, EM training, review queue, and clustering."""

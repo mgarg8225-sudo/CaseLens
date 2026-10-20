@@ -210,7 +210,7 @@ def load_and_harmonize_records(data_dir: str = "data") -> pd.DataFrame:
             fsl_no = str(row["fsl_case_number"])
             full, first, last, p_first, p_last = normalize_name(row.get("subject_name"))
             rel_full, rel_first, _, p_rel, _ = normalize_name(row.get("guardian_name"))
-            rec_date = str(row["sample_receipt_date"]) if pd.notna(row.get("sample_receipt_date")) and str(row["sample_receipt_date"]).strip() else None
+            inc_date = str(row["incident_date"]) if pd.notna(row.get("incident_date")) and str(row["incident_date"]).strip() else None
 
             records.append({
                 "unique_id": f"forensic_lab__{fsl_no}",
@@ -225,7 +225,7 @@ def load_and_harmonize_records(data_dir: str = "data") -> pd.DataFrame:
                 "norm_relative_name": rel_full,
                 "phonetic_relative": p_rel,
                 "norm_locality": None,
-                "incident_date": rec_date,
+                "incident_date": inc_date,
                 "record_date": str(row.get("report_dispatch_date")) if pd.notna(row.get("report_dispatch_date")) else None
             })
 

@@ -493,6 +493,7 @@ def generate_dataset(num_cases: int = 5000, output_dir: str = "data") -> Dict[st
         if has_fsl:
             f, l, full = perturb_name(true_first, true_last)
             rel = perturb_relative_name(true_rel_name)
+            p_inc = perturb_date(incident_date)
             p_rec = perturb_date(fsl_receipt_date)
             p_rep = perturb_date(fsl_date, swap_prob=0.03)
             age_val = true_age if random.random() > 0.20 else ""
@@ -504,6 +505,7 @@ def generate_dataset(num_cases: int = 5000, output_dir: str = "data") -> Dict[st
                 "guardian_name": maybe_missing(rel, 0.22),
                 "age": age_val,
                 "district": district,
+                "incident_date": str(p_inc),
                 "sample_receipt_date": str(p_rec),
                 "report_dispatch_date": str(p_rep),
                 "evidence_type": random.choice(ev_types),

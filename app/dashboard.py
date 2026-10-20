@@ -324,6 +324,7 @@ def load_data_bundle():
         "evaluation": load_json_file("evaluation_metrics.json"),
         "privacy_audit": load_json_file("privacy_audit_report.json"),
         "policy_context": clean_policy_data(load_json_file("policy_context_cache.json")),
+        "journey": load_json_file("journey_metrics.json"),
     }
 
 
@@ -344,7 +345,204 @@ def clean_policy_data(raw_policy: Dict[str, Any]) -> Dict[str, Any]:
         return raw_policy
 
 
+NA = "N/A"
+
+
+def _num(value: Any) -> Optional[float]:
+    """Returns a finite numeric value, else None. Does not substitute demo defaults."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+            return None
+        return float(value)
+    return None
+
+
+def fmt_int(value: Any) -> str:
+    n = _num(value)
+    if n is None:
+        return NA
+    return f"{int(round(n)):,}"
+
+
+def fmt_float(value: Any, digits: int = 1) -> str:
+    n = _num(value)
+    if n is None:
+        return NA
+    return f"{n:.{digits}f}"
+
+
+def fmt_pct(value: Any, digits: int = 1) -> str:
+    n = _num(value)
+    if n is None:
+        return NA
+    return f"{n:.{digits}f}%"
+
+
+def pct_ratio(numerator: Any, denominator: Any) -> Optional[float]:
+    n = _num(numerator)
+    d = _num(denominator)
+    if n is None or d is None or d == 0:
+        return None
+    return (n / d) * 100.0
+
+
+def as_fraction_pct(value: Any) -> Optional[float]:
+    """Converts a 0–1 proportion or an already-percent value into percent points."""
+    n = _num(value)
+    if n is None:
+        return None
+    if 0.0 <= n <= 1.0:
+        return n * 100.0
+    return n
+
+
+def leak_by_code(leak_points: List[Any], code: str) -> Dict[str, Any]:
+    for lp in leak_points or []:
+        if isinstance(lp, dict) and lp.get("leak_code") == code:
+            return lp
+    return {}
+
+
+def format_leak_detail(lp: Dict[str, Any]) -> str:
+    if not lp:
+        return NA
+    mult = _num(lp.get("multiplier"))
+    drop = _num(lp.get("drop_off_leak_pct"))
+    delay = _num(lp.get("delay_days"))
+    if delay is None:
+        delay = _num(lp.get("trial_delay_days"))
+    base = _num(lp.get("baseline_days"))
+    if mult is not None and delay is not None and base is not None:
+        return (
+            f"Turnaround: <strong>{delay:.1f} days</strong> vs baseline "
+            f"<strong>{base:.1f} days</strong> (<strong>{mult:.2f}x delay multiplier</strong>)"
+        )
+    rate = _num(lp.get("chargesheet_rate_pct"))
+    bench = _num(lp.get("state_benchmark_pct"))
+    if drop is not None and rate is not None and bench is not None:
+        return (
+            f"Only <strong>{rate:.1f}%</strong> chargesheet conversion vs "
+            f"<strong>{bench:.1f}%</strong> benchmark (<strong>{drop:.1f}% attrition drop-off</strong>)"
+        )
+    return NA
+
+
+def statutory_compliance_label(compliance: Optional[Dict[str, Any]]) -> str:
+    """Uses the statutory key that exists for the transition; never invents 0%."""
+    if not isinstance(compliance, dict) or not compliance:
+        return NA
+    order = [
+        ("within_60_days_pct", "within 60 days"),
+        ("within_30_days_pct", "within 30 days"),
+        ("within_24h_pct", "within 24 hours"),
+    ]
+    for key, label in order:
+        if key in compliance:
+            n = _num(compliance.get(key))
+            if n is None:
+                return NA
+            return f"{n}% {label}"
+    return NA
+
+
+def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Derives dashboard headline metrics from pipeline JSON artifacts.
+    Missing or unusable fields become N/A — no demo numeric fallbacks.
+    """
+    bundle = bundle or {}
+    summary = bundle.get("summary") if isinstance(bundle.get("summary"), dict) else {}
+    health = summary.get("pipeline_health") if isinstance(summary.get("pipeline_health"), dict) else {}
+    journey = bundle.get("journey") if isinstance(bundle.get("journey"), dict) else {}
+    leaks_raw = summary.get("systemic_leak_points_detected")
+    leaks = leaks_raw if isinstance(leaks_raw, list) else None
+    ranking_raw = summary.get("district_vulnerability_ranking")
+    ranking = ranking_raw if isinstance(ranking_raw, list) else []
+
+    eval_data = bundle.get("evaluation") if isinstance(bundle.get("evaluation"), dict) else {}
+    pairwise = eval_data.get("pairwise_metrics") if isinstance(eval_data.get("pairwise_metrics"), dict) else {}
+    at_thr = pairwise.get("metrics_at_default_threshold") if isinstance(pairwise.get("metrics_at_default_threshold"), dict) else {}
+    cluster = eval_data.get("cluster_metrics") if isinstance(eval_data.get("cluster_metrics"), dict) else {}
+
+    priv = bundle.get("privacy_audit") if isinstance(bundle.get("privacy_audit"), dict) else {}
+    budget = priv.get("privacy_budget_summary") if isinstance(priv.get("privacy_budget_summary"), dict) else {}
+    dp_mech = priv.get("differential_privacy_mechanisms") if isinstance(priv.get("differential_privacy_mechanisms"), dict) else {}
+    k_eval = priv.get("k_anonymity_evaluation") if isinstance(priv.get("k_anonymity_evaluation"), dict) else {}
+    suppression = k_eval.get("small_cell_suppression_audit") if isinstance(k_eval.get("small_cell_suppression_audit"), dict) else {}
+    adv_root = priv.get("adversarial_threat_evaluations") if isinstance(priv.get("adversarial_threat_evaluations"), dict) else {}
+    singling = adv_root.get("singling_out_marksmanship_attack") if isinstance(adv_root.get("singling_out_marksmanship_attack"), dict) else {}
+    before = singling.get("before_protection") if isinstance(singling.get("before_protection"), dict) else {}
+    after = singling.get("after_k_anonymity_protection") if isinstance(singling.get("after_k_anonymity_protection"), dict) else {}
+
+    total = _num(health.get("total_reconstructed_cases"))
+    if total is None:
+        total = _num(journey.get("total_cases"))
+    events = _num(journey.get("total_events"))
+    fir = _num(health.get("cases_initiating_fir"))
+    verdict = _num(health.get("cases_reaching_verdict"))
+    fir_rate = pct_ratio(fir, total)
+    verdict_rate = _num(health.get("overall_conviction_reach_rate_pct"))
+    if verdict_rate is None:
+        verdict_rate = pct_ratio(verdict, fir)
+
+    leak_count = len(leaks) if leaks is not None else None
+    leak_districts = NA
+    if leaks:
+        codes = [str(lp.get("district")).split("_")[0] for lp in leaks if isinstance(lp, dict) and lp.get("district")]
+        leak_districts = ", ".join(codes) if codes else NA
+
+    zero_pii = dp_mech.get("zero_pii_compliance")
+    if zero_pii is True:
+        zero_pii_label, zero_pii_delta = "Pass", "Published DP tables passed Zero-PII check"
+    elif zero_pii is False:
+        zero_pii_label, zero_pii_delta = "Fail", "PII tokens detected in published tables"
+    else:
+        zero_pii_label, zero_pii_delta = NA, "Zero-PII status unavailable"
+
+    lp01 = leak_by_code(leaks or [], "LP-01-FORENSIC-DELAY")
+    lp02 = leak_by_code(leaks or [], "LP-02-POLICE-ATTRITION")
+    lp03 = leak_by_code(leaks or [], "LP-03-COURT-DELAY")
+
+    return {
+        "reconstructed_cases_display": fmt_int(total),
+        "events_display": fmt_int(events),
+        "fir_count_display": fmt_int(fir),
+        "fir_rate_display": fmt_pct(fir_rate),
+        "verdict_count_display": fmt_int(verdict),
+        "verdict_rate_display": fmt_pct(verdict_rate),
+        "leak_count_display": str(leak_count) if leak_count is not None else NA,
+        "leak_districts_display": leak_districts,
+        "bcubed_f1_display": fmt_float(cluster.get("bcubed_f1"), 3),
+        "macro_purity_display": fmt_pct(as_fraction_pct(cluster.get("macro_purity"))),
+        "pairwise_recall_display": fmt_pct(as_fraction_pct(at_thr.get("recall"))),
+        "pairwise_precision_display": fmt_pct(as_fraction_pct(at_thr.get("precision"))),
+        "pairwise_recall": _num(at_thr.get("recall")),
+        "pairwise_precision": _num(at_thr.get("precision")),
+        "candidate_pairs_display": fmt_int(pairwise.get("total_candidate_pairs")),
+        "epsilon_allocated_display": fmt_float(budget.get("total_epsilon_allocated"), 2),
+        "epsilon_spent_display": fmt_float(budget.get("spent_epsilon"), 2),
+        "epsilon_remaining_display": fmt_float(budget.get("remaining_epsilon"), 2),
+        "zero_pii_label": zero_pii_label,
+        "zero_pii_delta": zero_pii_delta,
+        "singling_before_display": fmt_pct(before.get("singling_out_risk_pct")),
+        "prosecutor_before_display": fmt_pct(before.get("max_prosecutor_risk_pct")),
+        "unique_before_display": fmt_int(before.get("unique_records_count")),
+        "singling_after_display": fmt_pct(after.get("singling_out_risk_pct")),
+        "prosecutor_after_display": fmt_pct(after.get("max_prosecutor_risk_pct")),
+        "unique_after_display": fmt_int(after.get("unique_records_count")),
+        "suppression_rate_display": fmt_pct(suppression.get("suppression_rate_pct")),
+        "lp01_delay": fmt_float(lp01.get("delay_days"), 1),
+        "lp01_multiplier": fmt_float(lp01.get("multiplier"), 2),
+        "lp02_drop": fmt_pct(lp02.get("drop_off_leak_pct")),
+        "lp03_delay": fmt_float(lp03.get("trial_delay_days"), 1),
+        "lp03_multiplier": fmt_float(lp03.get("multiplier"), 2),
+    }
+
+
 DATA = load_data_bundle()
+KPIS = compute_dashboard_kpis(DATA)
 
 
 # ==============================================================================
@@ -392,10 +590,10 @@ with st.sidebar:
                                   help="Cells with fewer than k cases are strictly suppressed as '<k'.")
 
     st.markdown("---")
-    st.markdown("""
+    st.markdown(f"""
         <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
             <strong style="color: #222222;">System Integrity</strong><br/>
-            • 5,125 Cases Reconstructed<br/>
+            • {KPIS['reconstructed_cases_display']} Cases Reconstructed<br/>
             • Pure Laplace Differential Privacy<br/>
             • Zero-PII Response Verification<br/>
             • Statutory Benchmarking
@@ -461,38 +659,35 @@ if PAGE == "📊 Executive Overview":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Reconstructed Cases</div>
-                <div class="metric-value">{health.get('total_reconstructed_cases', 5125):,}</div>
-                <div class="metric-delta">14,384 Canonical Events</div>
+                <div class="metric-value">{KPIS['reconstructed_cases_display']}</div>
+                <div class="metric-delta">{KPIS['events_display']} Canonical Events</div>
             </div>
         """, unsafe_allow_html=True)
 
     with kpi2:
-        fir_cnt = health.get('cases_initiating_fir', 4347)
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">FIR Initiating Rate</div>
-                <div class="metric-value">84.8%</div>
-                <div class="metric-delta">{fir_cnt:,} Police FIRs</div>
+                <div class="metric-value">{KPIS['fir_rate_display']}</div>
+                <div class="metric-delta">{KPIS['fir_count_display']} Police FIRs</div>
             </div>
         """, unsafe_allow_html=True)
 
     with kpi3:
-        verdict_cnt = health.get('cases_reaching_verdict', 1397)
-        conviction_rate = health.get('overall_conviction_reach_rate_pct', 32.14)
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Conviction Reach Rate</div>
-                <div class="metric-value">{conviction_rate}%</div>
-                <div class="metric-delta">{verdict_cnt:,} Reaching Trial Verdict</div>
+                <div class="metric-value">{KPIS['verdict_rate_display']}</div>
+                <div class="metric-delta">{KPIS['verdict_count_display']} Reaching Trial Verdict</div>
             </div>
         """, unsafe_allow_html=True)
 
     with kpi4:
-        st.markdown("""
+        st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Policy Leak Points</div>
-                <div class="metric-value">3 <span style="font-size: 1rem; color: #B45309; font-weight: 500;">Critical</span></div>
-                <div class="metric-delta">D3, D6, D7 Anomalies</div>
+                <div class="metric-value">{KPIS['leak_count_display']} <span style="font-size: 1rem; color: #B45309; font-weight: 500;">Critical</span></div>
+                <div class="metric-delta">{KPIS['leak_districts_display']} Anomalies</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -537,19 +732,8 @@ if PAGE == "📊 Executive Overview":
             dist = lp.get("district")
             code = lp.get("leak_code")
             title = lp.get("title")
-            mult = lp.get("multiplier")
-            drop = lp.get("drop_off_leak_pct")
-            
             badge_html = f'<span class="badge badge-critical">{code}</span>'
-            detail_text = ""
-            if mult:
-                delay = lp.get("delay_days") or lp.get("trial_delay_days", 0.0)
-                base = lp.get("baseline_days", 0.0)
-                detail_text = f"Turnaround: <strong>{delay:.1f} days</strong> vs baseline <strong>{base:.1f} days</strong> (<strong>{mult:.2f}x delay multiplier</strong>)"
-            elif drop:
-                rate = lp.get("chargesheet_rate_pct", 0.0)
-                bench = lp.get("state_benchmark_pct", 0.0)
-                detail_text = f"Only <strong>{rate:.1f}%</strong> chargesheet conversion vs <strong>{bench:.1f}%</strong> benchmark (<strong>{drop:.1f}% attrition drop-off</strong>)"
+            detail_text = format_leak_detail(lp)
 
             st.markdown(f"""
                 <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #B45309; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
@@ -601,7 +785,10 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
         stage_names = [s["stage_name"] for s in funnel_stages]
         noisy_counts = [s["noisy_case_count"] if isinstance(s["noisy_case_count"], (int, float)) else 0 for s in funnel_stages]
         raw_counts = [s.get("raw_case_count", 0) for s in funnel_stages]
-        err_margins = [s.get("confidence_margin_95", 12.0) if s.get("confidence_margin_95") is not None else 0.0 for s in funnel_stages]
+        err_margins = [
+            _num(s.get("confidence_margin_95")) if _num(s.get("confidence_margin_95")) is not None else 0.0
+            for s in funnel_stages
+        ]
 
         fig_funnel = go.Figure()
 
@@ -646,9 +833,9 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
                 "Milestone": s["stage_name"],
                 "Raw Cases": f"{s.get('raw_case_count', 0):,}",
                 "DP Noisy Count": s["noisy_case_count"],
-                "95% Error Bound": f"±{s.get('confidence_margin_95', 0.0)}" if s.get('confidence_margin_95') else "Suppressed",
-                "Cumulative Retention": f"{s.get('dp_retention_pct', 0.0):.1f}%",
-                "Step Conversion": f"{s.get('dp_conversion_pct', 0.0):.1f}%",
+                "95% Error Bound": f"±{s['confidence_margin_95']}" if _num(s.get("confidence_margin_95")) is not None else "Suppressed",
+                "Cumulative Retention": fmt_pct(s.get("dp_retention_pct")),
+                "Step Conversion": fmt_pct(s.get("dp_conversion_pct")),
                 "k-Suppressed (<5)": "⚠️ Masked" if s.get("is_k_anonymity_suppressed") else "✅ Compliant"
             })
         st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
