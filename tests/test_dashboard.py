@@ -152,10 +152,10 @@ def test_theme_wcag_contrast_ratios():
         assert ratio >= 4.5, f"Contrast ratio {ratio:.2f}:1 for {fg_label} fails WCAG AA 4.5:1 requirement"
 
 
-def test_presentation_empirical_signals():
+def test_empirical_impact_signals():
     """
-    Verifies that the underlying pipeline summary artifacts contain the exact
-    empirical signals presented in Slide 5 of Reforged '26:
+    Verifies that the underlying pipeline summary artifacts contain key
+    empirical signals:
     - District 3: Forensic lab turnaround delay multiplier (~3.2x - 3.5x)
     - District 6: Severe chargesheet drop-off leak
     - Linkage evaluation metrics: Pairwise recall >= 88% and B-Cubed F1 >= 92%

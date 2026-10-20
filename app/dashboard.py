@@ -319,7 +319,10 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 @st.cache_resource
 def ensure_demo_users():
     """Initializes viewer, analyst, and admin demo users in DuckDB with secure Argon2id hashes."""
-    init_demo_users(print_output=False)
+    try:
+        init_demo_users(print_output=False)
+    except Exception:
+        pass
     return True
 
 ensure_demo_users()
@@ -332,9 +335,6 @@ def render_login_screen():
             <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 14px;">
                 <div style="font-size: 1.15rem; font-weight: 700; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
                 <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
-            </div>
-            <div style="font-size: 0.82rem; color: #5F5F5F; line-height: 1.5; margin-bottom: 8px;">
-                <strong>Syntax Squad</strong> • Reforged '26 (Open Source Track)
             </div>
             <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;">
                 <span class="badge badge-privacy">SDG 5: Gender Equality</span>
@@ -359,7 +359,6 @@ def render_login_screen():
             <div style="display: flex; justify-content: center; gap: 8px; flex-wrap: wrap;">
                 <span class="badge badge-privacy">UN SDG 5: Gender Equality</span>
                 <span class="badge badge-normal">UN SDG 16: Peace, Justice & Strong Institutions</span>
-                <span class="badge badge-normal">Syntax Squad • Reforged '26</span>
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -691,9 +690,6 @@ with st.sidebar:
             <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600; letter-spacing: 0.01em;">
                 The Leaky Pipeline: Tracing Gaps in the Justice System
             </div>
-            <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 4px;">
-                Syntax Squad • Reforged '26 (Open Source)
-            </div>
         </div>
     """, unsafe_allow_html=True)
 
@@ -792,8 +788,7 @@ if PAGE == "📊 Executive Overview":
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
                 <div>
                     <div style="font-size: 1.25rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
-                    <div style="font-size: 0.88rem; color: #8B1E3F; font-weight: 600; margin-bottom: 4px;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
-                    <div style="font-size: 0.75rem; color: #5F5F5F; margin-bottom: 10px;">Syntax Squad • Reforged '26 (Open Source Track)</div>
+                    <div style="font-size: 0.88rem; color: #8B1E3F; font-weight: 600; margin-bottom: 12px;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
                 </div>
                 <div style="display: flex; gap: 6px; align-items: center; padding-top: 4px; flex-wrap: wrap;">
                     <span class="badge badge-privacy">UN SDG 5</span>
@@ -854,8 +849,8 @@ if PAGE == "📊 Executive Overview":
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
-    # Reforged '26 Key Presentation Impact Signals (Slide 5)
-    st.markdown("### 🎯 Reforged '26 Key Empirical Findings")
+    # Key Empirical Findings (Slide 5 signals)
+    st.markdown("### 🎯 Key Systemic Attrition Findings")
     sig1, sig2, sig3 = st.columns(3)
     with sig1:
         st.markdown("""

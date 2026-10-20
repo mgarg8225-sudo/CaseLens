@@ -1,13 +1,12 @@
 # CaseLens: The Leaky Pipeline
-### Tracing Gaps in the Justice System • Reforged '26 (Open Source Track)
+### Tracing Gaps in the Justice System
 
-> **Syntax Squad**: Mehak Garg • Naina Shukla • Aarna Bansal • Sakshi Sharma  
 > **Mission**: Diagnosing systemic attrition in violence-against-women cases across fragmented institutional silos without compromising survivor confidentiality.  
 > **Global Alignment**: **UN SDG 5** (Gender Equality) & **UN SDG 16** (Peace, Justice and Strong Institutions).
 
 ---
 
-## Reforged '26 Core Empirical Highlights
+## Core Empirical Highlights
 
 CaseLens reconstructs longitudinal case journeys across 5 disconnected institutional silos (Police FIR, Hospital MLC, Forensic Science Laboratories, Prosecution, and District Courts). On synthetic data calibrated to public judicial statistics, CaseLens delivers:
 
@@ -20,7 +19,7 @@ CaseLens reconstructs longitudinal case journeys across 5 disconnected instituti
 
 ## Technical Architecture & Workflow
 
-In accordance with the Reforged '26 architecture:
+In accordance with the CaseLens multi-agency architecture:
 1. **Ingest**: Approved records & metadata via FastAPI ingestion endpoints.
 2. **Normalize**: Standardization of names, transliteration variations, dates, and institutional schemas in DuckDB.
 3. **Match**: Probabilistic Fellegi-Sunter scoring (Splink) with Jaro-Winkler string distance and soundex phonetics.
