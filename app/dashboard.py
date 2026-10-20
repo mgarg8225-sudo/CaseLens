@@ -45,7 +45,7 @@ from src.case_simulator import SCENARIOS, run_simulation
 
 # Configure Page Settings
 st.set_page_config(
-    page_title="CaseLens | Policy Intelligence Dashboard",
+    page_title="CaseLens: The Leaky Pipeline",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -107,18 +107,27 @@ CUSTOM_CSS = """
         text-transform: uppercase;
         letter-spacing: 0.04em;
         margin-bottom: 4px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .metric-value {
-        font-size: 1.7rem;
+        font-size: 1.65rem;
         font-weight: 600;
         color: #222222;
         font-variant-numeric: tabular-nums;
         margin-bottom: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     .metric-delta {
         font-size: 0.8rem;
         color: #5F5F5F;
         font-weight: 400;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
     
     /* Status Badges */
@@ -321,7 +330,7 @@ def render_login_screen():
     with st.sidebar:
         st.markdown("""
             <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
-                <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CASELENS</div>
+                <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
                 <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">The Leaky Pipeline</div>
             </div>
             <div style="font-size: 0.85rem; color: #5F5F5F; line-height: 1.5;">
@@ -358,7 +367,7 @@ def render_login_screen():
         with st.form("login_form", clear_on_submit=False):
             u_input = st.text_input("Username", key="login_username", placeholder="viewer, analyst, or admin")
             p_input = st.text_input("Password", type="password", key="login_password", placeholder="Enter institutional password")
-            submit_btn = st.form_submit_button("Sign In", use_container_width=True)
+            submit_btn = st.form_submit_button("Sign In", width="stretch")
 
             if submit_btn:
                 u_clean = u_input.strip()
@@ -669,7 +678,7 @@ KPIS = compute_dashboard_kpis(DATA)
 with st.sidebar:
     st.markdown("""
         <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 16px;">
-            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CASELENS</div>
+            <div style="font-size: 1.15rem; font-weight: 600; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
             <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500; letter-spacing: 0.02em;">
                 The Leaky Pipeline
             </div>
@@ -684,7 +693,7 @@ with st.sidebar:
         </div>
     """, unsafe_allow_html=True)
 
-    if st.button("🚪 Sign Out", key="sidebar_logout_btn", use_container_width=True):
+    if st.button("🚪 Sign Out", key="sidebar_logout_btn", width="stretch"):
         log_audit_event("LOGOUT", username=CURRENT_USER["username"], role=CURRENT_ROLE)
         st.session_state.clear()
         st.rerun()
@@ -768,8 +777,17 @@ def get_plot_layout() -> Dict[str, Any]:
 if PAGE == "📊 Executive Overview":
     st.markdown("""
         <div class="hero-banner">
-            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
-            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">Tracing where violence-against-women cases drop out.</div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+                    <div style="font-size: 0.85rem; color: #8B1E3F; font-weight: 600; margin-bottom: 12px;">The Leaky Pipeline</div>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center; padding-top: 4px;">
+                    <span class="badge badge-privacy">ε-DP Laplace Protected</span>
+                    <span class="badge badge-normal">Zero-PII Guaranteed</span>
+                    <span class="badge badge-critical">15 Policy Leaks Flagged</span>
+                </div>
+            </div>
             <div class="hero-title">Executive Policy Overview: Violence-Against-Women Case Attrition</div>
             <div class="hero-subtitle">
                 Systemic drop-off analytics reconstructed from multi-institutional silos (Police FIR, Hospital MLC, 
@@ -781,8 +799,8 @@ if PAGE == "📊 Executive Overview":
     summary_data = DATA.get("summary", {})
     health = summary_data.get("pipeline_health", {})
 
-    # Top KPI Metrics Cards
-    kpi1, kpi2, kpi3, kpi4, kpi5 = st.columns(5)
+    # Top KPI Metrics Cards (4 wide columns to prevent text/number wrapping)
+    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
     with kpi1:
         st.markdown(f"""
             <div class="metric-card">
@@ -814,17 +832,8 @@ if PAGE == "📊 Executive Overview":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Policy Leak Points</div>
-                <div class="metric-value">{KPIS['leak_count_display']} <span style="font-size: 1rem; color: #B45309; font-weight: 500;">Critical</span></div>
+                <div class="metric-value">{KPIS['leak_count_display']} Critical</div>
                 <div class="metric-delta">{KPIS['leak_districts_display']} Anomalies</div>
-            </div>
-        """, unsafe_allow_html=True)
-
-    with kpi5:
-        st.markdown("""
-            <div class="metric-card">
-                <div class="metric-label">Privacy Guarantee</div>
-                <div class="metric-value">ε-DP</div>
-                <div class="metric-delta" style="color: #8B1E3F;">Zero PII Exposed</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -851,7 +860,7 @@ if PAGE == "📊 Executive Overview":
             )
             fig_rank.update_layout(get_plot_layout(), yaxis=dict(autorange="reversed"))
             fig_rank.update_traces(texttemplate='%{text:.1f}', textposition='outside')
-            st.plotly_chart(fig_rank, use_container_width=True)
+            st.plotly_chart(fig_rank, width="stretch")
 
     with col_right:
         st.markdown("### 🔍 Systemic Policy Leak Points Detected")
@@ -951,7 +960,7 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
             yaxis_title="Case Volume",
             xaxis_title="Institutional Milestone"
         )
-        st.plotly_chart(fig_funnel, use_container_width=True)
+        st.plotly_chart(fig_funnel, width="stretch")
 
         # Stage Breakdown Table
         st.markdown("### 📋 Milestone-by-Milestone Attrition Accounting")
@@ -966,7 +975,7 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
                 "Step Conversion": fmt_pct(s.get("dp_conversion_pct")),
                 "k-Suppressed (<5)": "⚠️ Masked" if s.get("is_k_anonymity_suppressed") else "✅ Compliant"
             })
-        st.dataframe(pd.DataFrame(table_rows), use_container_width=True)
+        st.dataframe(pd.DataFrame(table_rows), width="stretch")
 
 
 # ==============================================================================
@@ -1031,7 +1040,7 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
             )
             fig_buckets.update_traces(marker_color="#8B1E3F")
             fig_buckets.update_layout(get_plot_layout())
-            st.plotly_chart(fig_buckets, use_container_width=True)
+            st.plotly_chart(fig_buckets, width="stretch")
 
     with b_right:
         st.markdown("### 📊 Non-Parametric Latency Percentiles")
@@ -1132,11 +1141,11 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             textposition="top right"
         ))
         fig_pr.update_layout(get_plot_layout())
-        st.plotly_chart(fig_pr, use_container_width=True)
+        st.plotly_chart(fig_pr, width="stretch")
 
     # Threshold Diagnostic Trade-offs Table
     st.markdown("### 🎚️ Threshold Trade-Off Analysis")
-    st.dataframe(pd.DataFrame(thresh_table), use_container_width=True)
+    st.dataframe(pd.DataFrame(thresh_table), width="stretch")
 
 
 # ==============================================================================
@@ -1325,7 +1334,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         fig_lap.add_vline(x=-margin_95, line_dash="dash", line_color="#B45309", annotation_text="-95% CI")
         fig_lap.add_vline(x=margin_95, line_dash="dash", line_color="#B45309", annotation_text="+95% CI")
         fig_lap.update_layout(get_plot_layout())
-        st.plotly_chart(fig_lap, use_container_width=True)
+        st.plotly_chart(fig_lap, width="stretch")
 
     # Adversarial Attack Simulation Results
     st.markdown("### 🦹 Adversarial Re-Identification Attack Defense")
@@ -1539,7 +1548,7 @@ elif PAGE == "🧪 Case Simulator":
                     })
                     st.markdown("---")
 
-                re_run_btn = st.form_submit_button("⚡ Re-Run Linkage Scoring", use_container_width=True)
+                re_run_btn = st.form_submit_button("⚡ Re-Run Linkage Scoring", width="stretch")
 
             sim_result = run_simulation(custom_records, custom_title=f"Customized {selected_title}")
 
@@ -1624,7 +1633,7 @@ elif PAGE == "🧪 Case Simulator":
                     "Weight (Log-Odds)": f"{p['match_weight']:+.2f}",
                     "Decision": "✅ AUTO_ACCEPT" if p["decision"] == "AUTO_ACCEPT" else ("⚠️ HUMAN_REVIEW" if p["decision"] == "HUMAN_REVIEW" else "❌ REJECT")
                 })
-            st.dataframe(pd.DataFrame(table_data), use_container_width=True)
+            st.dataframe(pd.DataFrame(table_data), width="stretch")
 
             # 5. Per-Field Evidence Accordion
             st.markdown("#### 🔬 Per-Field Match Evidence (Log-Odds Contribution)")
@@ -1708,7 +1717,7 @@ elif PAGE == "📋 Review Queue":
 
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
         st.markdown("#### Pseudonymized Candidate Pairs")
-        st.dataframe(df_display.head(200), use_container_width=True)
+        st.dataframe(df_display.head(200), width="stretch")
         st.caption(f"Showing first 200 of {len(df_rq):,} records. All direct names suppressed.")
     else:
         st.info("No review_queue.csv found in data directory.")
@@ -1780,7 +1789,7 @@ elif PAGE == "📜 Audit Log":
 
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
         st.markdown("#### Audit Event Records (Most Recent)")
-        st.dataframe(df_logs.iloc[::-1], use_container_width=True)
+        st.dataframe(df_logs.iloc[::-1], width="stretch")
     else:
         st.info("No audit log events recorded yet.")
 

@@ -1,5 +1,5 @@
 """
-dashboard.py - Root entry point for CaseLens Streamlit dashboard.
+dashboard.py - Root entry point for CaseLens: The Leaky Pipeline Streamlit dashboard.
 Proxies to app/dashboard.py for seamless local or container execution.
 """
 

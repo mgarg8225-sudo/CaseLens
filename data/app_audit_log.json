@@ -1740,5 +1740,469 @@
       "scenario_id": "custom_edited",
       "title": "Customized 1. Clean Case: All 5 Agency Records Agree"
     }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:48.304361+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.498970+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_1_clean",
+      "title": "1. Clean Case: All 5 Agency Records Agree"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.502880+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_2_spelling_variants",
+      "title": "2. Spelling Variants: Dialectal & Transliteration Discrepancies"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.506445+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_3_swapped_names",
+      "title": "3. Swapped First/Last Name and Initials"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.510272+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_4_missing_fields",
+      "title": "4. Missing Fields: Incomplete Records & Null Attributes"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.514716+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_5_date_errors",
+      "title": "5. Date Errors: Recall Shifts (1-3 Days) and Day/Month Transposition"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.518620+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.521904+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.525197+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.530219+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.534892+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.542807+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.619879+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_1_clean",
+      "title": "1. Clean Case: All 5 Agency Records Agree"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.623337+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_2_spelling_variants",
+      "title": "2. Spelling Variants: Dialectal & Transliteration Discrepancies"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.636409+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_3_swapped_names",
+      "title": "3. Swapped First/Last Name and Initials"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.640774+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_4_missing_fields",
+      "title": "4. Missing Fields: Incomplete Records & Null Attributes"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.644907+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_5_date_errors",
+      "title": "5. Date Errors: Recall Shifts (1-3 Days) and Day/Month Transposition"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.648383+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.652810+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.662467+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:19:59.745935+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "custom_edited",
+      "title": "Custom Test Run"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:43.994601+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.704579+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_1_clean",
+      "title": "1. Clean Case: All 5 Agency Records Agree"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.708262+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_2_spelling_variants",
+      "title": "2. Spelling Variants: Dialectal & Transliteration Discrepancies"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.712691+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_3_swapped_names",
+      "title": "3. Swapped First/Last Name and Initials"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.716033+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_4_missing_fields",
+      "title": "4. Missing Fields: Incomplete Records & Null Attributes"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.719403+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_5_date_errors",
+      "title": "5. Date Errors: Recall Shifts (1-3 Days) and Day/Month Transposition"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.722336+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.725363+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.728789+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.733144+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.737997+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.743695+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.806674+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_1_clean",
+      "title": "1. Clean Case: All 5 Agency Records Agree"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.810372+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_2_spelling_variants",
+      "title": "2. Spelling Variants: Dialectal & Transliteration Discrepancies"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.813624+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_3_swapped_names",
+      "title": "3. Swapped First/Last Name and Initials"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.816658+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_4_missing_fields",
+      "title": "4. Missing Fields: Incomplete Records & Null Attributes"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.819946+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_5_date_errors",
+      "title": "5. Date Errors: Recall Shifts (1-3 Days) and Day/Month Transposition"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.823168+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_6_different_people",
+      "title": "6. False-Link Protection: Different People with Similar Names in Same District"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.826600+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_7_dropped_case",
+      "title": "7. Dropped Case: Police-to-Prosecution Attrition Leak (Leak Point)"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.830021+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "scenario_8_delayed_case",
+      "title": "8. Delayed Case: Forensic Science Laboratory Latency Bottleneck"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:32:54.892048+00:00",
+    "event_type": "CASE_SIMULATOR_RUN",
+    "username": "simulator_engine",
+    "role": "analyst",
+    "page": "\ud83e\uddea Case Simulator",
+    "details": {
+      "scenario_id": "custom_edited",
+      "title": "Custom Test Run"
+    }
+  },
+  {
+    "timestamp": "2026-10-20T12:33:24.087409+00:00",
+    "event_type": "PAGE_VISIT",
+    "username": "anonymous",
+    "role": "viewer",
+    "page": "\ud83d\udcca Executive Overview",
+    "details": {}
   }
 ]

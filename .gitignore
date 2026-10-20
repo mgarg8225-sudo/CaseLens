@@ -6,25 +6,35 @@ tests/test_data/
 *.duckdb
 .coverage
 htmlcov/
+
+# Environment variables & configurations
 .env
 .env.*
+*.env
 
-# secrets / keys
+# Secrets, passwords, keys & tokens
 *.key
 *.pem
+*.token
+*.password
+tokens.json
+secrets.json
+credentials.json
 
-# virtual environments (future safety)
+# Virtual environments
 venv/
 .venv/
+env/
+.env_dir/
 
-# OS / editor
+# OS & Editor
 Thumbs.db
 .DS_Store
 .vscode/
+.idea/
 
-# streamlit secrets
+# Streamlit secrets
 .streamlit/secrets.toml
 
+# Local pipeline data artifacts
 data/linked_pairs.csv
-__pycache__/
-*.pyc
