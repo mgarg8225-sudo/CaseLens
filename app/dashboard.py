@@ -16,7 +16,10 @@ Theme & Palette:
 - Neutral chart series: Greys #8C8C8C and #BDBDBD
 - Gridlines: #E8E4DC
 """
+import sys
+   from pathlib import Path
 
+   sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import os
 import json
 import math
