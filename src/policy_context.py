@@ -41,12 +41,22 @@ class PolicyContextError(Exception):
 
 def load_tinyfish_api_key(env_path: str = ".env") -> Optional[str]:
     """
-    Loads TINYFISH_API_KEY from environment or .env file using pure Python.
-    Does NOT require python-dotenv. Never prints or hardcodes the key.
+    Loads TINYFISH_API_KEY from st.secrets, environment, or .env file.
+    Does NOT crash if missing. Never prints or hardcodes the key.
     """
+    try:
+        from src.auth import get_secret
+        key = get_secret("TINYFISH_API_KEY")
+        if key and key.strip():
+            os.environ["TINYFISH_API_KEY"] = key.strip()
+            return key.strip()
+    except Exception:
+        pass
+
     key = os.environ.get("TINYFISH_API_KEY")
     if key and key.strip():
         return key.strip()
+
 
     # Read .env directly without third-party dependencies
     if os.path.exists(env_path):

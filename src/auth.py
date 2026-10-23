@@ -96,6 +96,11 @@ def verify_password(password_hash: str, password: str) -> bool:
 
 def load_env_file(env_path: str = ".env"):
     """Loads environment variables from .env file if present."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=False)
+    except Exception:
+        pass
     if os.path.exists(env_path):
         try:
             with open(env_path, "r", encoding="utf-8") as f:
@@ -111,19 +116,63 @@ def load_env_file(env_path: str = ".env"):
             pass
 
 
+def get_secret(key: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Safely retrieves a configuration value / secret.
+    Checks st.secrets first (for Streamlit Cloud), then os.environ (and .env).
+    Never crashes if a key or secrets configuration is missing.
+    """
+    # 1. Try st.secrets if streamlit is available
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets"):
+            if key in st.secrets:
+                val = st.secrets[key]
+                if val is not None and str(val).strip():
+                    return str(val).strip()
+            # Also check uppercase/lowercase variations
+            for k in st.secrets:
+                if str(k).upper() == key.upper():
+                    val = st.secrets[k]
+                    if val is not None and str(val).strip():
+                        return str(val).strip()
+    except Exception:
+        pass
+
+    # 2. Try os.environ
+    try:
+        val = os.environ.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    except Exception:
+        pass
+
+    # 3. Try loading from .env if not loaded yet
+    try:
+        load_env_file()
+        val = os.environ.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    except Exception:
+        pass
+
+    return default
+
+
 def get_jwt_secret_key() -> str:
     """
     Retrieves the JWT secret key from the environment.
     FAILS LOUDLY if missing or empty.
     """
     load_env_file()
-    key = os.environ.get("JWT_SECRET_KEY") or os.environ.get("JWT_SECRET")
+    key = get_secret("JWT_SECRET_KEY") or get_secret("JWT_SECRET")
     if not key or not key.strip():
         raise RuntimeError(
             "CRITICAL SECURITY CONFIGURATION ERROR: 'JWT_SECRET_KEY' environment variable is missing or empty! "
             "Cannot issue or verify authentication tokens without a secure secret key."
         )
     return key.strip()
+
 
 
 def create_access_token(

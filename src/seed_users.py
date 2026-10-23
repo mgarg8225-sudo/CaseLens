@@ -18,6 +18,7 @@ from src.auth import (
     hash_password,
     get_user_by_username,
     load_env_file,
+    get_secret,
     VALID_ROLES
 )
 
@@ -104,11 +105,11 @@ def generate_secure_random_password(length: int = 14) -> str:
 
 def seed_demo_users(
     db_path: Optional[str] = None,
-    print_output: bool = True
+    print_output: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """
     Creates or updates the 9 demo users with random passwords.
-    Prints credentials once to stdout if print_output is True.
+    Never prints or logs plaintext passwords.
     Returns in-memory dictionary of demo user credentials.
     """
     conn = get_db(db_path)
@@ -161,14 +162,14 @@ def seed_demo_users(
     if print_output:
         print("\n" + "=" * 90)
         print("CASELENS - PHASE A DEMO USER SEEDING")
-        print("Random passwords generated once in memory for demo & testing. Never saved to disk.")
+        print("Passwords secured in memory. Never logged or saved to disk.")
         print("=" * 90)
-        print(f"{'Role':<18} | {'Username':<18} | {'Agency':<12} | {'District':<14} | {'Generated Password'}")
+        print(f"{'Role':<18} | {'Username':<18} | {'Agency':<12} | {'District':<14} | {'Status'}")
         print("-" * 90)
         for u in credentials.values():
             ag_str = u['agency'] or '-'
             dist_str = u['district'] or '-'
-            print(f"{u['role']:<18} | {u['username']:<18} | {ag_str:<12} | {dist_str:<14} | {u['password']}")
+            print(f"{u['role']:<18} | {u['username']:<18} | {ag_str:<12} | {dist_str:<14} | [CONFIGURED / GENERATED]")
         print("=" * 90 + "\n")
 
     return credentials
@@ -176,7 +177,8 @@ def seed_demo_users(
 
 def init_demo_users(
     db_path: Optional[str] = None,
-    print_output: bool = True
+    print_output: bool = False,
+    only_if_missing: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """
     Initializes the 3 core demo users for CaseLens:
@@ -184,15 +186,14 @@ def init_demo_users(
     2. analyst (role: analyst)
     3. admin (role: admin)
 
-    Passwords are read from environment variables:
+    Passwords are read securely via get_secret (st.secrets first, then environment):
     - DEMO_VIEWER_PASSWORD (or VIEWER_PASSWORD)
     - DEMO_ANALYST_PASSWORD (or ANALYST_PASSWORD)
     - DEMO_ADMIN_PASSWORD (or ADMIN_PASSWORD)
-    If missing, cryptographically strong random passwords are generated and printed once.
-    Passwords are never hardcoded or stored in plaintext on disk.
+    If missing, cryptographically strong random passwords are generated in memory.
+    Passwords are never hardcoded, printed, or stored in plaintext on disk.
     Argon2id hashes are saved into DuckDB users table.
     """
-    import os
     load_env_file()
     conn = get_db(db_path)
     init_auth_db(conn)
@@ -225,10 +226,21 @@ def init_demo_users(
         username = cfg["username"]
         role = cfg["role"]
 
-        # Read password from environment
+        existing = get_user_by_username(username, db_path=db_path)
+        if only_if_missing and existing:
+            credentials[username] = {
+                "id": existing["id"],
+                "username": username,
+                "password": "[HIDDEN]",
+                "role": role,
+                "description": cfg["description"]
+            }
+            continue
+
+        # Read password from st.secrets or environment
         pwd = None
         for ev in cfg["env_vars"]:
-            val = os.environ.get(ev)
+            val = get_secret(ev)
             if val and val.strip():
                 pwd = val.strip()
                 break
@@ -238,7 +250,6 @@ def init_demo_users(
             any_random_generated = True
 
         pw_hash = hash_password(pwd)
-        existing = get_user_by_username(username, db_path=db_path)
         if existing:
             conn.execute(
                 """
@@ -271,13 +282,14 @@ def init_demo_users(
         print("\n" + "=" * 90)
         print("CASELENS DEMO USERS (Generated Once in Memory - Never Hardcoded)")
         print("=" * 90)
-        print(f"{'Role':<12} | {'Username':<12} | {'Generated Password'}")
+        print(f"{'Role':<12} | {'Username':<12} | {'Status'}")
         print("-" * 90)
         for u in credentials.values():
-            print(f"{u['role']:<12} | {u['username']:<12} | {u['password']}")
+            print(f"{u['role']:<12} | {u['username']:<12} | [CONFIGURED / GENERATED]")
         print("=" * 90 + "\n")
 
     return credentials
+
 
 
 if __name__ == "__main__":

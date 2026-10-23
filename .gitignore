@@ -38,3 +38,5 @@ Thumbs.db
 
 # Local pipeline data artifacts
 data/linked_pairs.csv
+data/app_audit_log.json
+*.wal
