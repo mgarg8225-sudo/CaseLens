@@ -50,6 +50,7 @@ from app.api_client import (
     get_audit_logs,
     log_audit_event,
     load_dashboard_bundle,
+    load_json_fallback,
     ROLE_PERMISSIONS,
     check_user_permission,
     normalize_role,
@@ -57,13 +58,23 @@ from app.api_client import (
 )
 
 
+def _is_running_in_streamlit() -> bool:
+    """Detects whether script is running inside an active Streamlit runtime context."""
+    try:
+        from streamlit.runtime import exists
+        return exists()
+    except Exception:
+        return False
+
+
 # Configure Page Settings
-st.set_page_config(
-    page_title="CaseLens | The Leaky Pipeline: Tracing Gaps in the Justice System",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+if _is_running_in_streamlit():
+    st.set_page_config(
+        page_title="CaseLens | The Leaky Pipeline: Tracing Gaps in the Justice System",
+        page_icon="🛡️",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
 
 # ==============================================================================
 # 1. Custom CSS Theme & Styling (Sober Editorial Light Theme)
@@ -323,7 +334,8 @@ CUSTOM_CSS = """
     }
 </style>
 """
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+if _is_running_in_streamlit():
+    st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 
 # ==============================================================================
@@ -415,12 +427,15 @@ def render_login_screen():
         """, unsafe_allow_html=True)
 
 
-if "authenticated" not in st.session_state or not st.session_state.get("authenticated"):
-    render_login_screen()
-    st.stop()
-
-CURRENT_USER = st.session_state.get("user") or {"username": "anonymous", "role": "viewer"}
-CURRENT_ROLE = normalize_role(CURRENT_USER.get("role"))
+if _is_running_in_streamlit():
+    if "authenticated" not in st.session_state or not st.session_state.get("authenticated"):
+        render_login_screen()
+        st.stop()
+    CURRENT_USER = st.session_state.get("user") or {"username": "anonymous", "role": "viewer"}
+    CURRENT_ROLE = normalize_role(CURRENT_USER.get("role"))
+else:
+    CURRENT_USER = {"username": "anonymous", "role": "viewer"}
+    CURRENT_ROLE = "viewer"
 
 
 # ==============================================================================
@@ -433,11 +448,7 @@ DATA_DIR = os.environ.get("LEAKY_DATA_DIR", "data")
 @st.cache_data
 def load_json_file(filename: str) -> Dict[str, Any]:
     """Safely loads fallback JSON structure."""
-    bundle_key = filename.replace(".json", "")
-    for k in ["summary", "funnel", "dp_funnel", "bottlenecks", "evaluation", "privacy_audit", "policy_context", "journey"]:
-        if k in bundle_key:
-            return SAMPLE_JSON_DEFAULTS.get(k, {})
-    return SAMPLE_JSON_DEFAULTS.get(filename, {})
+    return load_json_fallback(filename)
 
 
 @st.cache_data
@@ -647,74 +658,78 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-DATA = load_data_bundle(st.session_state.get("token"))
-KPIS = compute_dashboard_kpis(DATA)
+if _is_running_in_streamlit() and st.session_state.get("authenticated"):
+    DATA = load_data_bundle(st.session_state.get("token"))
+    KPIS = compute_dashboard_kpis(DATA)
 
+    # ==============================================================================
+    # 4. Sidebar Navigation & Session Controls
+    # ==============================================================================
 
-# ==============================================================================
-# 4. Sidebar Navigation & Session Controls
-# ==============================================================================
-
-with st.sidebar:
-    st.markdown("""
-        <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 14px;">
-            <div style="font-size: 1.15rem; font-weight: 700; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
-            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600; letter-spacing: 0.01em;">
-                The Leaky Pipeline: Tracing Gaps in the Justice System
+    with st.sidebar:
+        st.markdown("""
+            <div style="padding: 10px 0 16px 0; border-bottom: 1px solid #E3DED6; margin-bottom: 14px;">
+                <div style="font-size: 1.15rem; font-weight: 700; color: #222222; letter-spacing: -0.01em;">CaseLens</div>
+                <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 600; letter-spacing: 0.01em;">
+                    The Leaky Pipeline: Tracing Gaps in the Justice System
+                </div>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
 
-    st.markdown(f"""
-        <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 12px; margin-bottom: 12px;">
-            <div style="font-size: 0.72rem; color: #5F5F5F; text-transform: uppercase; font-weight: 600; letter-spacing: 0.03em;">Active Session</div>
-            <div style="font-size: 0.95rem; font-weight: 600; color: #222222;">👤 {CURRENT_USER['username']}</div>
-            <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">Role: <span style="text-transform: capitalize;">{CURRENT_ROLE}</span></div>
-        </div>
-    """, unsafe_allow_html=True)
+        st.markdown(f"""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 12px; margin-bottom: 12px;">
+                <div style="font-size: 0.72rem; color: #5F5F5F; text-transform: uppercase; font-weight: 600; letter-spacing: 0.03em;">Active Session</div>
+                <div style="font-size: 0.95rem; font-weight: 600; color: #222222;">👤 {CURRENT_USER['username']}</div>
+                <div style="font-size: 0.78rem; color: #8B1E3F; font-weight: 500;">Role: <span style="text-transform: capitalize;">{CURRENT_ROLE}</span></div>
+            </div>
+        """, unsafe_allow_html=True)
 
-    if st.button("🚪 Sign Out", key="sidebar_logout_btn", width="stretch"):
-        log_audit_event("LOGOUT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, token=st.session_state.get("token"))
-        st.session_state.clear()
-        st.rerun()
+        if st.button("🚪 Sign Out", key="sidebar_logout_btn", width="stretch"):
+            log_audit_event("LOGOUT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, token=st.session_state.get("token"))
+            st.session_state.clear()
+            st.rerun()
 
-    st.markdown("### 🧭 Navigation")
-    allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])
-    PAGE = st.radio(
-        label="Select Analytical View",
-        options=allowed_pages,
-        index=0,
-        label_visibility="collapsed"
-    )
+        st.markdown("### 🧭 Navigation")
+        allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])
+        PAGE = st.radio(
+            label="Select Analytical View",
+            options=allowed_pages,
+            index=0,
+            label_visibility="collapsed"
+        )
 
-    st.markdown("---")
-    st.markdown("### 🔒 Privacy Controls")
-    EPSILON_SIM = st.slider(r"Epsilon ($\epsilon$) Noise Level", min_value=0.1, max_value=2.0, value=0.25, step=0.05,
-                            help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality.")
-    K_ANONYMITY = st.number_input("k-Anonymity Suppression Threshold", min_value=3, max_value=20, value=5, step=1,
-                                  help="Cells with fewer than k cases are strictly suppressed as '<k'.")
+        st.markdown("---")
+        st.markdown("### 🔒 Privacy Controls")
+        EPSILON_SIM = st.slider(r"Epsilon ($\epsilon$) Noise Level", min_value=0.1, max_value=2.0, value=0.25, step=0.05,
+                                help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality.")
+        K_ANONYMITY = st.number_input("k-Anonymity Suppression Threshold", min_value=3, max_value=20, value=5, step=1,
+                                      help="Cells with fewer than k cases are strictly suppressed as '<k'.")
 
-    st.markdown("---")
-    st.markdown(f"""
-        <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
-            <strong style="color: #222222;">System Integrity</strong><br/>
-            • {KPIS['reconstructed_cases_display']} Cases Reconstructed<br/>
-            • Pure Laplace Differential Privacy<br/>
-            • Zero-PII Response Verification<br/>
-            • Statutory Benchmarking
-        </div>
-    """, unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown(f"""
+            <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
+                <strong style="color: #222222;">System Integrity</strong><br/>
+                • {KPIS['reconstructed_cases_display']} Cases Reconstructed<br/>
+                • Pure Laplace Differential Privacy<br/>
+                • Zero-PII Response Verification<br/>
+                • Statutory Benchmarking
+            </div>
+        """, unsafe_allow_html=True)
 
-# Server-side RBAC validation: strictly blocks unauthorized access even if requested
-if not check_user_permission(CURRENT_ROLE, PAGE):
-    log_audit_event("ACCESS_DENIED", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
-    st.error(f"⛔ Access Denied: Your assigned role '{CURRENT_ROLE}' does not have permission to view the '{PAGE}' page. Please contact your system administrator if you require elevated access.")
-    st.stop()
+    # Server-side RBAC validation: strictly blocks unauthorized access even if requested
+    if not check_user_permission(CURRENT_ROLE, PAGE):
+        log_audit_event("ACCESS_DENIED", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
+        st.error(f"⛔ Access Denied: Your assigned role '{CURRENT_ROLE}' does not have permission to view the '{PAGE}' page. Please contact your system administrator if you require elevated access.")
+        st.stop()
 
-# Record page visit audit event (Zero-PII)
-if st.session_state.get("last_recorded_page") != PAGE:
-    log_audit_event("PAGE_VISIT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
-    st.session_state["last_recorded_page"] = PAGE
+    # Record page visit audit event (Zero-PII)
+    if st.session_state.get("last_recorded_page") != PAGE:
+        log_audit_event("PAGE_VISIT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
+        st.session_state["last_recorded_page"] = PAGE
+else:
+    DATA = {}
+    KPIS = {}
+    PAGE = None
 
 
 
@@ -859,6 +874,10 @@ if PAGE == "📊 Executive Overview":
         ranking = summary_data.get("district_vulnerability_ranking", [])
         if ranking:
             df_rank = pd.DataFrame(ranking)
+            if "score" not in df_rank.columns and "leak_score" in df_rank.columns:
+                df_rank["score"] = df_rank["leak_score"]
+            if "status" not in df_rank.columns:
+                df_rank["status"] = df_rank["score"].apply(lambda s: "CRITICAL" if s >= 10.0 else "NORMAL")
             fig_rank = px.bar(
                 df_rank,
                 x="score",

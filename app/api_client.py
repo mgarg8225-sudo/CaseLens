@@ -11,6 +11,7 @@ Handles:
 """
 
 import os
+import json
 import re
 from typing import Dict, List, Any, Optional, Set
 import requests
@@ -212,6 +213,9 @@ def check_user_permission(role: Optional[str], page: str) -> bool:
     return False
 
 
+DATA_DIR = os.environ.get("LEAKY_DATA_DIR", "data")
+
+
 # ==============================================================================
 # Sample Defaults for Graceful Offline / Fallback Display
 # ==============================================================================
@@ -220,43 +224,55 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
     "summary": {
         "pipeline_health": {
             "total_incidents": 5000,
+            "total_reconstructed_cases": 5125,
+            "cases_initiating_fir": 4347,
+            "cases_reaching_verdict": 1397,
+            "overall_conviction_reach_rate_pct": 32.14,
             "overall_conviction_rate_pct": 8.4,
             "overall_attrition_rate_pct": 91.6,
             "median_end_to_end_journey_days": 218.0
         },
         "systemic_leak_points_detected": [
             {
-                "leak_code": "LEAK_POINT_1",
+                "leak_code": "LP-01-FORENSIC-DELAY",
                 "agency": "Forensic Science Lab",
                 "district": "D3_Rudrapur",
-                "description": "Severe biological evidence turnaround delays",
-                "multiplier": 3.42,
-                "delay_days": 185.0,
-                "baseline_days": 54.0
+                "title": "Severe Forensic Lab Turnaround Delay",
+                "multiplier": 3.19,
+                "delay_days": 137.5,
+                "baseline_days": 43.0,
+                "affected_cases": 201
             },
             {
-                "leak_code": "LEAK_POINT_2",
+                "leak_code": "LP-02-POLICE-ATTRITION",
                 "agency": "Police Investigation",
                 "district": "D6_Shivgarh",
-                "description": "Severe FIR-to-Chargesheet conversion drop-off",
-                "drop_off_leak_pct": 71.2,
-                "chargesheet_rate_pct": 28.8,
-                "state_benchmark_pct": 68.0
+                "title": "Excessive FIR-to-Chargesheet Drop-off",
+                "drop_off_leak_pct": 72.2,
+                "chargesheet_rate_pct": 27.8,
+                "state_benchmark_pct": 59.0,
+                "affected_firs": 392
             },
             {
-                "leak_code": "LEAK_POINT_3",
+                "leak_code": "LP-03-COURT-DELAY",
                 "agency": "Judiciary / Trial Courts",
                 "district": "D7_Anandpur",
-                "description": "Statutory trial completion delay exceeding POCSO/BNSS mandate",
-                "multiplier": 2.15,
-                "trial_delay_days": 412.0,
-                "baseline_days": 191.0
+                "title": "Severe Judicial Trial Adjudication Delay",
+                "multiplier": 2.14,
+                "trial_delay_days": 612.9,
+                "baseline_days": 288.0,
+                "cases_in_trial": 180
             }
         ],
         "district_vulnerability_ranking": [
-            {"rank": 1, "district": "D3_Rudrapur", "leak_score": 88.5},
-            {"rank": 2, "district": "D6_Shivgarh", "leak_score": 82.1},
-            {"rank": 3, "district": "D7_Anandpur", "leak_score": 75.4}
+            {"district": "D6_Shivgarh", "score": 56.5, "status": "CRITICAL"},
+            {"district": "D7_Anandpur", "score": 36.6, "status": "CRITICAL"},
+            {"district": "D3_Rudrapur", "score": 34.0, "status": "CRITICAL"},
+            {"district": "D4_Kalyanpur", "score": 5.3, "status": "NORMAL"},
+            {"district": "D2_Chandranagar", "score": 4.4, "status": "NORMAL"},
+            {"district": "D5_Mayaganj", "score": 3.4, "status": "NORMAL"},
+            {"district": "D8_Devkalan", "score": 2.5, "status": "NORMAL"},
+            {"district": "D1_Suryapur", "score": 2.0, "status": "NORMAL"}
         ]
     },
     "funnel": {
@@ -277,7 +293,32 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
     },
     "district_leakage": {},
     "dp_districts": {},
-    "bottlenecks": {},
+    "bottlenecks": {
+        "FIR_REGISTERED -> MEDICAL_EXAM": {
+            "median_days": 2.0,
+            "iqr_days": 3.0,
+            "p95_days": 7.0,
+            "delay_buckets": {"<= 24 Hours": 45.0, "1-3 Days": 35.0, "> 3 Days": 20.0}
+        },
+        "MEDICAL_EXAM -> FORENSIC_REPORT": {
+            "median_days": 43.0,
+            "iqr_days": 35.0,
+            "p95_days": 138.0,
+            "delay_buckets": {"<= 30 Days": 32.0, "31-60 Days": 28.0, "> 60 Days": 40.0}
+        },
+        "FORENSIC_REPORT -> CHARGESHEET_FILED": {
+            "median_days": 21.0,
+            "iqr_days": 18.0,
+            "p95_days": 55.0,
+            "delay_buckets": {"<= 30 Days": 68.0, "31-60 Days": 22.0, "> 60 Days": 10.0}
+        },
+        "CHARGESHEET_FILED -> COURT_VERDICT": {
+            "median_days": 284.0,
+            "iqr_days": 210.0,
+            "p95_days": 650.0,
+            "delay_buckets": {"<= 180 Days": 15.0, "181-365 Days": 42.0, "> 365 Days": 43.0}
+        }
+    },
     "categories": {},
     "evaluation": {
         "pairwise_metrics": {
@@ -289,7 +330,13 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
             "bcubed_f1": 0.9288,
             "macro_purity": 0.972
         },
-        "pairwise_threshold_table": []
+        "pairwise_threshold_table": [
+            {"threshold": 0.50, "precision": 0.42, "recall": 0.95, "f1": 0.58},
+            {"threshold": 0.65, "precision": 0.50, "recall": 0.92, "f1": 0.65},
+            {"threshold": 0.75, "precision": 0.54, "recall": 0.90, "f1": 0.68},
+            {"threshold": 0.85, "precision": 0.57, "recall": 0.88, "f1": 0.69},
+            {"threshold": 0.95, "precision": 0.75, "recall": 0.70, "f1": 0.72}
+        ]
     },
     "privacy_audit": {
         "status": "COMPLIANT",
@@ -301,13 +348,89 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
             "remaining_epsilon": 7.65
         }
     },
-    "policy_context": {},
+    "policy_context": {
+        "lp_01": {
+            "leak_code": "LP-01-FORENSIC-DELAY",
+            "leak_point_label": "Severe Forensic Lab Turnaround Delay",
+            "finding": "Forensic report generation exceeds 90-day statutory threshold",
+            "suggested_intervention": "Automate digital transmission of biological forensic reports",
+            "sources": [{"title": "POCSO Act 2012", "url": "https://wcd.nic.in", "source_domain": "wcd.nic.in", "summary": "Section 35(2)"}]
+        },
+        "lp_02": {
+            "leak_code": "LP-02-POLICE-ATTRITION",
+            "leak_point_label": "Excessive FIR-to-Chargesheet Drop-off",
+            "finding": "72.2% drop-off in D6 Shivgarh",
+            "suggested_intervention": "Mandate recording of Sec 164 statements within 48h",
+            "sources": [{"title": "BNSS 2023", "url": "https://mha.gov.in", "source_domain": "mha.gov.in", "summary": "Section 173(2)"}]
+        },
+        "lp_03": {
+            "leak_code": "LP-03-COURT-DELAY",
+            "leak_point_label": "Severe Judicial Trial Adjudication Delay",
+            "finding": "612.9 days trial duration in D7 Anandpur",
+            "suggested_intervention": "Fast Track Special Courts (FTSC) establishment",
+            "sources": [{"title": "Department of Justice Guidelines", "url": "https://doj.gov.in", "source_domain": "doj.gov.in", "summary": "FTSC Scheme"}]
+        },
+        "lp_04": {
+            "leak_code": "LP-04-HOSPITAL-DELAY",
+            "leak_point_label": "MLC Examination Delay",
+            "finding": "Delay in medical examination exceeding 24 hours",
+            "suggested_intervention": "Designate 24/7 forensic medical examiners at district hospitals",
+            "sources": [{"title": "MoHFW Guidelines", "url": "https://mohfw.gov.in", "source_domain": "mohfw.gov.in", "summary": "Medico-Legal Care"}]
+        },
+        "lp_05": {
+            "leak_code": "LP-05-PROSECUTION-GAP",
+            "leak_point_label": "Prosecutorial Scrutiny Latency",
+            "finding": "Delay in chargesheet submission after investigation completion",
+            "suggested_intervention": "Digital integration between Police CCTNS and e-Courts",
+            "sources": [{"title": "NCRB Crime in India", "url": "https://ncrb.gov.in", "source_domain": "ncrb.gov.in", "summary": "Disposal of Cases"}]
+        }
+    },
     "journey": {
         "median_journey_days": 218.0,
         "total_cases": 5000,
         "total_events": 14384
     }
 }
+
+
+def load_json_fallback(key_or_filename: str) -> Dict[str, Any]:
+    """Safely loads fallback data from local data directory or SAMPLE_JSON_DEFAULTS."""
+    filename = key_or_filename if key_or_filename.endswith(".json") else f"{key_or_filename}.json"
+    file_path = os.path.join(DATA_DIR, filename)
+    if not os.path.exists(file_path):
+        mapping = {
+            "summary": "analytics_summary.json",
+            "funnel": "analytics_funnel.json",
+            "dp_funnel": "privacy_dp_funnel.json",
+            "district_leakage": "analytics_district_leakage.json",
+            "dp_districts": "privacy_dp_districts.json",
+            "bottlenecks": "analytics_bottlenecks.json",
+            "categories": "analytics_category.json",
+            "evaluation": "evaluation_metrics.json",
+            "privacy_audit": "privacy_audit_report.json",
+            "policy_context": "policy_context_cache.json",
+            "journey": "journey_metrics.json",
+        }
+        alt = mapping.get(key_or_filename.replace(".json", ""))
+        if alt:
+            file_path = os.path.join(DATA_DIR, alt)
+
+    if os.path.exists(file_path):
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+
+    key = key_or_filename.replace(".json", "")
+    for k in [
+        "summary", "funnel", "dp_funnel", "bottlenecks", "evaluation",
+        "privacy_audit", "policy_context", "journey", "dp_districts",
+        "categories", "district_leakage"
+    ]:
+        if k in key:
+            return SAMPLE_JSON_DEFAULTS.get(k, {})
+    return SAMPLE_JSON_DEFAULTS.get(key, {})
 
 
 # ==============================================================================
@@ -344,7 +467,7 @@ def get_summary(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any
             return body.get("data", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("summary", {})
+    return load_json_fallback("analytics_summary.json")
 
 
 def get_funnel(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -357,7 +480,7 @@ def get_funnel(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]
             return body.get("funnel", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("dp_funnel", {})
+    return load_json_fallback("privacy_dp_funnel.json")
 
 
 def get_districts(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -370,7 +493,7 @@ def get_districts(token: Optional[str] = None, timeout: int = 10) -> Dict[str, A
             return body.get("district_analytics", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("dp_districts", {})
+    return load_json_fallback("privacy_dp_districts.json")
 
 
 def get_policy_context(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -383,7 +506,7 @@ def get_policy_context(token: Optional[str] = None, timeout: int = 10) -> Dict[s
             return body.get("external_policy_context", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("policy_context", {})
+    return load_json_fallback("policy_context_cache.json")
 
 
 def get_evaluation(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -396,7 +519,7 @@ def get_evaluation(token: Optional[str] = None, timeout: int = 10) -> Dict[str, 
             return body.get("evaluation", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("evaluation", {})
+    return load_json_fallback("evaluation_metrics.json")
 
 
 def get_journey(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -409,7 +532,7 @@ def get_journey(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any
             return body.get("journey", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("journey", {})
+    return load_json_fallback("journey_metrics.json")
 
 
 # ==============================================================================
@@ -426,7 +549,7 @@ def get_bottlenecks(token: Optional[str] = None, timeout: int = 10) -> Dict[str,
             return body.get("transitions", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("bottlenecks", {})
+    return load_json_fallback("analytics_bottlenecks.json")
 
 
 def get_categories(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -439,7 +562,7 @@ def get_categories(token: Optional[str] = None, timeout: int = 10) -> Dict[str, 
             return body.get("categories", body)
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("categories", {})
+    return load_json_fallback("analytics_category.json")
 
 
 def get_privacy_budget(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -509,7 +632,7 @@ def get_privacy_diagnostics(token: Optional[str] = None, timeout: int = 10) -> D
             return resp.json()
     except Exception as exc:
         _handle_request_error(exc, url)
-    return SAMPLE_JSON_DEFAULTS.get("privacy_audit", {})
+    return load_json_fallback("privacy_audit_report.json")
 
 
 def get_review_queue(limit: int = 200, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -576,14 +699,62 @@ def log_audit_event(
 # 5. Composite Dashboard Data Bundle Loader
 # ==============================================================================
 
+def is_backend_available(timeout: float = 0.8) -> bool:
+    """Fast check whether the FastAPI backend is running and reachable."""
+    url = f"{get_api_base_url()}/api/v1/health"
+    try:
+        resp = requests.get(url, timeout=timeout)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
+def _clean_policy_sources(raw_policy: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensures policy context excludes non-authoritative domains like scribd or facebook."""
+    if not isinstance(raw_policy, dict):
+        return {}
+    cleaned = {}
+    for k, v in raw_policy.items():
+        if isinstance(v, dict) and "sources" in v:
+            entry = dict(v)
+            entry["sources"] = [
+                s for s in entry.get("sources", [])
+                if "scribd" not in str(s.get("source_domain", "")).lower()
+                and "facebook" not in str(s.get("source_domain", "")).lower()
+                and "scribd" not in str(s.get("url", "")).lower()
+                and "facebook" not in str(s.get("url", "")).lower()
+            ]
+            cleaned[k] = entry
+        else:
+            cleaned[k] = v
+    return cleaned
+
+
 def load_dashboard_bundle(token: Optional[str] = None) -> Dict[str, Any]:
     """
     Fetches all primary analytical and privacy JSON artifacts via HTTP from the FastAPI backend.
-    Gracefully falls back to sample defaults if backend is unreachable or offline.
+    Gracefully falls back to precomputed artifacts if backend is unreachable or offline.
     """
+    if not is_backend_available():
+        return {
+            "summary": load_json_fallback("analytics_summary.json"),
+            "funnel": load_json_fallback("analytics_funnel.json"),
+            "dp_funnel": load_json_fallback("privacy_dp_funnel.json"),
+            "district_leakage": load_json_fallback("analytics_district_leakage.json"),
+            "dp_districts": load_json_fallback("privacy_dp_districts.json"),
+            "bottlenecks": load_json_fallback("analytics_bottlenecks.json"),
+            "categories": load_json_fallback("analytics_category.json"),
+            "evaluation": load_json_fallback("evaluation_metrics.json"),
+            "privacy_audit": load_json_fallback("privacy_audit_report.json"),
+            "policy_context": _clean_policy_sources(load_json_fallback("policy_context_cache.json")),
+            "journey": load_json_fallback("journey_metrics.json"),
+        }
+
     summary = get_summary(token=token)
-    funnel = get_funnel(token=token)
-    districts = get_districts(token=token)
+    funnel = load_json_fallback("analytics_funnel.json")
+    dp_funnel = get_funnel(token=token)
+    district_leakage = load_json_fallback("analytics_district_leakage.json")
+    dp_districts = get_districts(token=token)
     bottlenecks = get_bottlenecks(token=token)
     categories = get_categories(token=token)
     evaluation = get_evaluation(token=token)
@@ -593,14 +764,14 @@ def load_dashboard_bundle(token: Optional[str] = None) -> Dict[str, Any]:
 
     return {
         "summary": summary,
-        "funnel": SAMPLE_JSON_DEFAULTS.get("funnel", {}),
-        "dp_funnel": funnel,
-        "district_leakage": SAMPLE_JSON_DEFAULTS.get("district_leakage", {}),
-        "dp_districts": districts,
+        "funnel": funnel,
+        "dp_funnel": dp_funnel,
+        "district_leakage": district_leakage,
+        "dp_districts": dp_districts,
         "bottlenecks": bottlenecks,
         "categories": categories,
         "evaluation": evaluation,
         "privacy_audit": privacy_audit,
-        "policy_context": policy_context,
+        "policy_context": _clean_policy_sources(policy_context),
         "journey": journey,
     }

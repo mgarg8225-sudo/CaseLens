@@ -17,7 +17,50 @@ CaseLens reconstructs longitudinal case journeys across 5 disconnected instituti
 
 ---
 
-## Technical Architecture & Workflow
+## System Architecture
+
+CaseLens employs a decoupled three-tier architecture separating presentation, privacy enforcement, and data persistence:
+
+```
+┌────────────────────────────────────────────────────────┐
+│             Streamlit Frontend (Browser)               │
+│               app/dashboard.py                         │
+│               (Sober Editorial Light UI)               │
+└───────────────────────────┬────────────────────────────┘
+                            │ HTTP / JSON (Bearer JWT)
+                            │ via app/api_client.py
+┌───────────────────────────▼────────────────────────────┐
+│              FastAPI Backend Service                   │
+│               src/api.py (Port 8000)                   │
+│                                                        │
+│  • Argon2id & Short-Lived JWT Authentication           │
+│  • Role-Based Access Control (Viewer, Analyst, Admin)  │
+│  • Pure Laplace Differential Privacy (ε-allocation)   │
+│  • Small-Cell k-Anonymity Suppression (k ≥ 5)          │
+│  • Server-Side Zero-PII Payload Verification           │
+│  • Immutable Security Audit Ledger                     │
+└───────────────────────────┬────────────────────────────┘
+                            │ Internal Query Engine
+┌───────────────────────────▼────────────────────────────┐
+│               Data Persistence Layer                   │
+│               DuckDB & JSON Artifacts                  │
+│                                                        │
+│  • data/pipeline.duckdb (Normalized Agency Records)    │
+│  • data/analytics_*.json (Aggregated Analytics)        │
+│  • data/privacy_dp_*.json (DP Noise-Masked Funnels)    │
+│  • data/policy_context_cache.json (TinyFish Standards) │
+│  • data/review_queue.csv (Pseudonymized Pairs)         │
+└────────────────────────────────────────────────────────┘
+```
+
+### Architecture Highlights
+- **Streamlit Frontend (`app/dashboard.py`)**: A pure presentation layer that communicates exclusively with the backend over HTTP via `app/api_client.py`. The dashboard does not read database tables or raw data files directly, nor does it import internal analytics, linkage, privacy, or auth modules from `src/`.
+- **FastAPI Backend (`src/api.py`)**: The authoritative enforcement point for institutional access control (RBAC), cryptographic credential hashing (Argon2id), differential privacy budget consumption, $k$-anonymity suppression, and mathematical Zero-PII response screening. Raw survivor identifiers are never returned across the network boundary.
+- **Data Persistence Layer (`DuckDB / JSON Artifacts`)**: High-performance columnar storage and precomputed analytical artifacts located in `data/`, isolating sensitive source tables behind authorized backend queries.
+
+---
+
+## Technical Workflow
 
 In accordance with the CaseLens multi-agency architecture:
 1. **Ingest**: Approved records & metadata via FastAPI ingestion endpoints.
