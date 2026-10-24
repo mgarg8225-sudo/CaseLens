@@ -40,3 +40,4 @@ Thumbs.db
 data/linked_pairs.csv
 data/app_audit_log.json
 *.wal
+data/*audit_log.json
