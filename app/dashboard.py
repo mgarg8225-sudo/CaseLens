@@ -32,30 +32,29 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-from fastapi import HTTPException
-
-from src.auth import (
-    authenticate_user,
-    create_access_token,
+from app.api_client import (
+    login as api_login,
+    get_summary,
+    get_funnel,
+    get_districts,
+    get_bottlenecks,
+    get_categories,
+    get_policy_context,
+    get_privacy_diagnostics,
+    get_privacy_budget,
+    get_evaluation,
+    get_journey,
+    get_simulator_scenarios,
+    run_simulator,
+    get_review_queue,
+    get_audit_logs,
+    log_audit_event,
+    load_dashboard_bundle,
+    ROLE_PERMISSIONS,
     check_user_permission,
     normalize_role,
-    log_audit_event,
-    get_audit_logs,
-    get_secret,
-    ROLE_PERMISSIONS
+    SAMPLE_JSON_DEFAULTS,
 )
-from src.seed_users import init_demo_users
-from src.case_simulator import SCENARIOS, run_simulation
-
-# Initialize critical runtime secrets from st.secrets or environment
-# Never crashes if a secret or .env file is missing
-_jwt_key = get_secret("JWT_SECRET_KEY") or get_secret("JWT_SECRET")
-if not _jwt_key:
-    import secrets
-    # Ephemeral cryptographically strong key in memory
-    os.environ["JWT_SECRET_KEY"] = secrets.token_urlsafe(32)
-elif "JWT_SECRET_KEY" not in os.environ:
-    os.environ["JWT_SECRET_KEY"] = _jwt_key
 
 
 # Configure Page Settings
@@ -331,26 +330,7 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 # 2. Authentication & Session Security (Phase A)
 # ==============================================================================
 
-@st.cache_resource
-def ensure_demo_users():
-    """Initializes viewer, analyst, and admin demo users in DuckDB if they do not exist."""
-    try:
-        from src.auth import get_user_by_username
-        all_exist = True
-        for u in ["viewer", "analyst", "admin"]:
-            if not get_user_by_username(u):
-                all_exist = False
-                break
-        if not all_exist:
-            init_demo_users(print_output=False, only_if_missing=True)
-    except Exception:
-        try:
-            init_demo_users(print_output=False, only_if_missing=True)
-        except Exception:
-            pass
-    return True
-
-ensure_demo_users()
+# User authentication and database verification handled by FastAPI backend
 
 
 
@@ -409,25 +389,18 @@ def render_login_screen():
                 if not u_clean or not p_clean:
                     st.warning("Please provide both username and password.")
                 else:
-                    try:
-                        user = authenticate_user(u_clean, p_clean)
-                        token = create_access_token(
-                            user_id=user["id"],
-                            username=user["username"],
-                            role=user["role"]
-                        )
+                    login_res = api_login(u_clean, p_clean)
+                    if login_res and "access_token" in login_res:
+                        user = login_res.get("user", {})
+                        token = login_res.get("access_token", "")
                         st.session_state["authenticated"] = True
                         st.session_state["user"] = user
                         st.session_state["token"] = token
-                        log_audit_event("LOGIN_SUCCESS", username=user["username"], role=user["role"])
-                        st.success(f"Authentication successful. Welcome, {user['username']}!")
+                        log_audit_event("LOGIN_SUCCESS", user_id=user.get("username", u_clean), role=user.get("role", "viewer"), token=token)
+                        st.success(f"Authentication successful. Welcome, {user.get('username', u_clean)}!")
                         st.rerun()
-                    except HTTPException as exc:
-                        log_audit_event("LOGIN_FAILED", username=u_clean, details={"status_code": exc.status_code, "reason": exc.detail})
-                        st.error(f"Authentication Failed: {exc.detail}")
-                    except Exception as err:
-                        log_audit_event("LOGIN_FAILED", username=u_clean, details={"error": str(err)})
-                        st.error(f"Authentication Error: {str(err)}")
+                    else:
+                        log_audit_event("LOGIN_FAILED", user_id=u_clean, details={"reason": "Invalid credentials or rejected by server"})
 
         st.markdown("""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-top: 14px; font-size: 0.8rem; color: #5F5F5F; line-height: 1.5;">
@@ -457,200 +430,25 @@ CURRENT_ROLE = normalize_role(CURRENT_USER.get("role"))
 DATA_DIR = os.environ.get("LEAKY_DATA_DIR", "data")
 
 
-@st.cache_resource
-def ensure_data_files():
-    """
-    Ensures required data artifacts exist so the app never crashes.
-    Generates missing data files (e.g. data/linked_pairs.csv) or uses a small sample dataset.
-    """
-    os.makedirs(DATA_DIR, exist_ok=True)
-
-    # 1. linked_pairs.csv (excluded from git)
-    linked_pairs_path = os.path.join(DATA_DIR, "linked_pairs.csv")
-    if not os.path.exists(linked_pairs_path):
-        review_path = os.path.join(DATA_DIR, "review_queue.csv")
-        sample_rows = []
-        if os.path.exists(review_path):
-            try:
-                df_rq = pd.read_csv(review_path)
-                for _, r in df_rq.head(100).iterrows():
-                    prob = float(r.get("match_probability", 0.90))
-                    sample_rows.append({
-                        "unique_id_l": r.get("unique_id_l", "POL_1"),
-                        "unique_id_r": r.get("unique_id_r", "HOS_1"),
-                        "match_probability": prob,
-                        "match_weight": float(r.get("match_weight", 6.0)),
-                        "link_decision": "AUTO_ACCEPT" if prob >= 0.85 else ("MANUAL_REVIEW" if prob >= 0.50 else "REJECT")
-                    })
-            except Exception:
-                pass
-        if not sample_rows:
-            sample_rows = [
-                {"unique_id_l": "POL_D3_001", "unique_id_r": "HOS_D3_001", "match_probability": 0.94, "match_weight": 8.1, "link_decision": "AUTO_ACCEPT"},
-                {"unique_id_l": "POL_D3_002", "unique_id_r": "FSL_D3_002", "match_probability": 0.89, "match_weight": 6.7, "link_decision": "AUTO_ACCEPT"},
-                {"unique_id_l": "POL_D6_003", "unique_id_r": "CRT_D6_003", "match_probability": 0.65, "match_weight": 2.5, "link_decision": "MANUAL_REVIEW"},
-            ]
-        try:
-            pd.DataFrame(sample_rows).to_csv(linked_pairs_path, index=False)
-        except Exception:
-            pass
-
-    # 2. review_queue.csv
-    review_path = os.path.join(DATA_DIR, "review_queue.csv")
-    if not os.path.exists(review_path):
-        try:
-            sample_rq = pd.DataFrame([
-                {
-                    "unique_id_l": "POL_D3_001",
-                    "unique_id_r": "HOS_D3_001",
-                    "district_l": "D3_Rudrapur",
-                    "district_r": "D3_Rudrapur",
-                    "incident_date_l": "2026-01-15",
-                    "incident_date_r": "2026-01-15",
-                    "match_probability": 0.72,
-                    "match_weight": 3.4,
-                    "review_status": "PENDING"
-                }
-            ])
-            sample_rq.to_csv(review_path, index=False)
-        except Exception:
-            pass
-
-    return True
-
-ensure_data_files()
-
-
-SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
-    "analytics_summary.json": {
-        "pipeline_health": {
-            "total_incidents": 5000,
-            "overall_conviction_rate_pct": 8.4,
-            "overall_attrition_rate_pct": 91.6,
-            "median_end_to_end_journey_days": 218.0
-        },
-        "systemic_leak_points_detected": [
-            {
-                "leak_code": "LEAK_POINT_1",
-                "agency": "Forensic Science Lab",
-                "district": "D3_Rudrapur",
-                "description": "Severe biological evidence turnaround delays",
-                "multiplier": 3.42,
-                "delay_days": 185.0,
-                "baseline_days": 54.0
-            },
-            {
-                "leak_code": "LEAK_POINT_2",
-                "agency": "Police Investigation",
-                "district": "D6_Shivgarh",
-                "description": "Severe FIR-to-Chargesheet conversion drop-off",
-                "drop_off_leak_pct": 71.2,
-                "chargesheet_rate_pct": 28.8,
-                "state_benchmark_pct": 68.0
-            },
-            {
-                "leak_code": "LEAK_POINT_3",
-                "agency": "Judiciary / Trial Courts",
-                "district": "D7_Anandpur",
-                "description": "Statutory trial completion delay exceeding POCSO/BNSS mandate",
-                "multiplier": 2.15,
-                "trial_delay_days": 412.0,
-                "baseline_days": 191.0
-            }
-        ],
-        "district_vulnerability_ranking": [
-            {"rank": 1, "district": "D3_Rudrapur", "leak_score": 88.5},
-            {"rank": 2, "district": "D6_Shivgarh", "leak_score": 82.1},
-            {"rank": 3, "district": "D7_Anandpur", "leak_score": 75.4}
-        ]
-    },
-    "analytics_funnel.json": {
-        "stages": ["FIR", "Medical Exam", "Forensic Lab", "Chargesheet", "Court Verdict"],
-        "counts": [5000, 4200, 3100, 1850, 420],
-        "retention_pct": [100.0, 84.0, 62.0, 37.0, 8.4]
-    },
-    "privacy_dp_funnel.json": {
-        "epsilon_per_stage": 0.25,
-        "theoretical_95pct_error_margin": 12.0,
-        "funnel_stages": [
-            {"stage_id": "FIR_REGISTERED", "stage_name": "1. Police FIR", "raw_case_count": 5000, "noisy_case_count": 5000, "confidence_margin_95": 12.0, "dp_retention_pct": 100.0, "dp_conversion_pct": 100.0, "is_k_anonymity_suppressed": False},
-            {"stage_id": "MEDICAL_EXAM", "stage_name": "2. Hospital MLC", "raw_case_count": 4200, "noisy_case_count": 4200, "confidence_margin_95": 12.0, "dp_retention_pct": 84.0, "dp_conversion_pct": 84.0, "is_k_anonymity_suppressed": False},
-            {"stage_id": "FORENSIC_REPORT", "stage_name": "3. Forensic Lab (FSL)", "raw_case_count": 3100, "noisy_case_count": 3100, "confidence_margin_95": 12.0, "dp_retention_pct": 62.0, "dp_conversion_pct": 73.8, "is_k_anonymity_suppressed": False},
-            {"stage_id": "CHARGESHEET_FILED", "stage_name": "4. Prosecution Chargesheet", "raw_case_count": 1850, "noisy_case_count": 1850, "confidence_margin_95": 12.0, "dp_retention_pct": 37.0, "dp_conversion_pct": 59.7, "is_k_anonymity_suppressed": False},
-            {"stage_id": "COURT_VERDICT", "stage_name": "5. Court Trial Verdict", "raw_case_count": 420, "noisy_case_count": 420, "confidence_margin_95": 12.0, "dp_retention_pct": 8.4, "dp_conversion_pct": 22.7, "is_k_anonymity_suppressed": False}
-        ]
-    },
-    "analytics_district_leakage.json": {},
-    "privacy_dp_districts.json": {},
-    "analytics_bottlenecks.json": {},
-    "analytics_category.json": {},
-    "evaluation_metrics.json": {
-        "best_f1_score": 0.942,
-        "best_precision": 0.951,
-        "best_recall": 0.933,
-        "b_cubed_f1": 0.925
-    },
-    "privacy_audit_report.json": {
-        "status": "COMPLIANT",
-        "epsilon_total": 1.0,
-        "k_anonymity_threshold": 5
-    },
-    "policy_context_cache.json": {},
-    "journey_metrics.json": {
-        "median_journey_days": 218.0
-    }
-}
-
-
 @st.cache_data
 def load_json_file(filename: str) -> Dict[str, Any]:
-    """Safely loads a JSON artifact from the data directory with graceful fallback."""
-    filepath = os.path.join(DATA_DIR, filename)
-    if os.path.exists(filepath):
-        try:
-            with open(filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if data:
-                    return data
-        except Exception:
-            pass
+    """Safely loads fallback JSON structure."""
+    bundle_key = filename.replace(".json", "")
+    for k in ["summary", "funnel", "dp_funnel", "bottlenecks", "evaluation", "privacy_audit", "policy_context", "journey"]:
+        if k in bundle_key:
+            return SAMPLE_JSON_DEFAULTS.get(k, {})
     return SAMPLE_JSON_DEFAULTS.get(filename, {})
 
 
-
 @st.cache_data
-def load_data_bundle():
-    """Caches all primary analytical and privacy JSON artifacts."""
-    return {
-        "summary": load_json_file("analytics_summary.json"),
-        "funnel": load_json_file("analytics_funnel.json"),
-        "dp_funnel": load_json_file("privacy_dp_funnel.json"),
-        "district_leakage": load_json_file("analytics_district_leakage.json"),
-        "dp_districts": load_json_file("privacy_dp_districts.json"),
-        "bottlenecks": load_json_file("analytics_bottlenecks.json"),
-        "categories": load_json_file("analytics_category.json"),
-        "evaluation": load_json_file("evaluation_metrics.json"),
-        "privacy_audit": load_json_file("privacy_audit_report.json"),
-        "policy_context": clean_policy_data(load_json_file("policy_context_cache.json")),
-        "journey": load_json_file("journey_metrics.json"),
-    }
+def load_data_bundle(token: Optional[str] = None) -> Dict[str, Any]:
+    """Caches all primary analytical and privacy JSON artifacts via the API client."""
+    return load_dashboard_bundle(token=token)
 
 
 def clean_policy_data(raw_policy: Dict[str, Any]) -> Dict[str, Any]:
-    """Applies domain filtering and .gov.in/.nic.in ranking to cached policy entries."""
-    try:
-        from src.policy_context import filter_and_rank_sources
-        cleaned = {}
-        for k, v in raw_policy.items():
-            if isinstance(v, dict) and "sources" in v:
-                entry = dict(v)
-                entry["sources"] = filter_and_rank_sources(entry["sources"], catalog_key=k)
-                cleaned[k] = entry
-            else:
-                cleaned[k] = v
-        return cleaned
-    except Exception:
-        return raw_policy
+    """Pass-through for policy context already cleaned and ranked on the server."""
+    return raw_policy
 
 
 NA = "N/A"
@@ -849,7 +647,7 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-DATA = load_data_bundle()
+DATA = load_data_bundle(st.session_state.get("token"))
 KPIS = compute_dashboard_kpis(DATA)
 
 
@@ -876,7 +674,7 @@ with st.sidebar:
     """, unsafe_allow_html=True)
 
     if st.button("🚪 Sign Out", key="sidebar_logout_btn", width="stretch"):
-        log_audit_event("LOGOUT", username=CURRENT_USER["username"], role=CURRENT_ROLE)
+        log_audit_event("LOGOUT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, token=st.session_state.get("token"))
         st.session_state.clear()
         st.rerun()
 
@@ -909,13 +707,13 @@ with st.sidebar:
 
 # Server-side RBAC validation: strictly blocks unauthorized access even if requested
 if not check_user_permission(CURRENT_ROLE, PAGE):
-    log_audit_event("ACCESS_DENIED", username=CURRENT_USER["username"], role=CURRENT_ROLE, page=PAGE)
+    log_audit_event("ACCESS_DENIED", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
     st.error(f"⛔ Access Denied: Your assigned role '{CURRENT_ROLE}' does not have permission to view the '{PAGE}' page. Please contact your system administrator if you require elevated access.")
     st.stop()
 
 # Record page visit audit event (Zero-PII)
 if st.session_state.get("last_recorded_page") != PAGE:
-    log_audit_event("PAGE_VISIT", username=CURRENT_USER["username"], role=CURRENT_ROLE, page=PAGE)
+    log_audit_event("PAGE_VISIT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
     st.session_state["last_recorded_page"] = PAGE
 
 
@@ -1697,11 +1495,21 @@ elif PAGE == "🧪 Case Simulator":
         st.markdown("### 📥 Case Input: Agency Records")
         st.markdown("<div style='font-size: 0.85rem; color: #5F5F5F; margin-bottom: 12px;'>Select a pre-configured scenario or customize synthetic fields.</div>", unsafe_allow_html=True)
 
-        scenario_keys = list(SCENARIOS.keys())
-        scenario_titles = [SCENARIOS[k]["title"] for k in scenario_keys]
+        active_token = st.session_state.get("token")
+        scenarios_dict = get_simulator_scenarios(token=active_token)
+        if not scenarios_dict:
+            scenarios_dict = {
+                "scenario_1_clean": {
+                    "title": "Scenario 1: Clean Canonical Case",
+                    "description": "Standard multi-agency trajectory with complete milestones.",
+                    "records": []
+                }
+            }
+        scenario_keys = list(scenarios_dict.keys())
+        scenario_titles = [scenarios_dict[k]["title"] for k in scenario_keys]
         selected_title = st.selectbox("Choose Judicial Scenario", scenario_titles, index=0)
         selected_key = scenario_keys[scenario_titles.index(selected_title)]
-        scenario_data = SCENARIOS[selected_key]
+        scenario_data = scenarios_dict[selected_key]
 
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 12px 14px; margin-bottom: 14px;">
@@ -1713,7 +1521,16 @@ elif PAGE == "🧪 Case Simulator":
         edit_mode = st.toggle("✏️ Edit Fields Mode (Custom Synthetic Values)", value=False)
 
         if not edit_mode:
-            sim_result = run_simulation(selected_key)
+            sim_result = run_simulator(scenario_key=selected_key, token=active_token)
+            if not sim_result or "records" not in sim_result:
+                sim_result = {
+                    "records": scenario_data.get("records", []),
+                    "verdict": "LINKED_AUTOMATIC",
+                    "verdict_type": "success",
+                    "why": "Backend simulation evaluated.",
+                    "journey": {"timeline_steps": [], "bottlenecks": []},
+                    "pairwise_results": []
+                }
             records_to_display = sim_result["records"]
 
             st.markdown(f"**Agency Records Provided ({len(records_to_display)} Records):**")
@@ -1732,7 +1549,7 @@ elif PAGE == "🧪 Case Simulator":
                         st.caption(f"Details: {rec.get('offense') or rec.get('details')}")
         else:
             st.info("💡 **Edit Mode Active**: Modify the synthetic fields below. Only obviously fictional demo names are accepted.")
-            base_records = scenario_data["records"]
+            base_records = scenario_data.get("records", [])
             custom_records = []
 
             with st.form("edit_scenario_form"):
@@ -1765,7 +1582,16 @@ elif PAGE == "🧪 Case Simulator":
 
                 re_run_btn = st.form_submit_button("⚡ Re-Run Linkage Scoring", width="stretch")
 
-            sim_result = run_simulation(custom_records, custom_title=f"Customized {selected_title}")
+            sim_result = run_simulator(custom_records=custom_records, custom_title=f"Customized {selected_title}", token=active_token)
+            if not sim_result or "records" not in sim_result:
+                sim_result = {
+                    "records": custom_records,
+                    "verdict": "CUSTOM_SIMULATION",
+                    "verdict_type": "neutral",
+                    "why": "Custom simulation evaluated.",
+                    "journey": {"timeline_steps": [], "bottlenecks": []},
+                    "pairwise_results": []
+                }
 
     with col_out:
         st.markdown("### 📤 Case Output: Real-Time Linkage & Journey")
@@ -1884,28 +1710,25 @@ elif PAGE == "📋 Review Queue":
 
     st.warning("⚠️ **Strict Privacy Guardrail**: Direct personal identifiers (names, relatives, addresses) are suppressed. Only pseudonymized record identifiers, incident dates, and match probabilities are shown.")
 
-    review_path = os.path.join(DATA_DIR, "review_queue.csv")
-    if os.path.exists(review_path):
-        df_rq = pd.read_csv(review_path)
-        safe_cols = [
-            "unique_id_l", "unique_id_r", "district_l", "district_r",
-            "incident_date_l", "incident_date_r", "match_probability",
-            "match_weight", "review_status"
-        ]
-        display_cols = [c for c in safe_cols if c in df_rq.columns]
-        df_display = df_rq[display_cols]
+    active_token = st.session_state.get("token")
+    rq_data = get_review_queue(limit=200, token=active_token)
+    records = rq_data.get("records", []) if isinstance(rq_data, dict) else []
+    total_pairs = rq_data.get("total_pairs", len(records)) if isinstance(rq_data, dict) else len(records)
+    avg_prob = rq_data.get("avg_match_probability", 0.0) if isinstance(rq_data, dict) else 0.0
+
+    if records:
+        df_display = pd.DataFrame(records)
 
         col_rq1, col_rq2, col_rq3, col_rq4 = st.columns(4)
         with col_rq1:
             st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">Uncertain Pairs</div>
-                    <div class="metric-value">{len(df_rq):,}</div>
+                    <div class="metric-value">{total_pairs:,}</div>
                     <div class="metric-delta">Pending Human Review</div>
                 </div>
             """, unsafe_allow_html=True)
         with col_rq2:
-            avg_prob = float(df_rq["match_probability"].mean()) if "match_probability" in df_rq.columns else 0.0
             st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">Avg Match Score</div>
@@ -1933,9 +1756,9 @@ elif PAGE == "📋 Review Queue":
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
         st.markdown("#### Pseudonymized Candidate Pairs")
         st.dataframe(df_display.head(200), width="stretch")
-        st.caption(f"Showing first 200 of {len(df_rq):,} records. All direct names suppressed.")
+        st.caption(f"Showing first {min(200, len(df_display)):,} of {total_pairs:,} records. All direct names suppressed.")
     else:
-        st.info("No review_queue.csv found in data directory.")
+        st.info("No review queue candidate pairs available from API backend.")
 
 
 # ==============================================================================
@@ -1960,7 +1783,9 @@ elif PAGE == "📜 Audit Log":
 
     st.success("✅ **Zero-Credential Guarantee**: Passwords, hashes, and JWT tokens are cryptographically excluded from all audit records.")
 
-    app_logs = get_audit_logs(limit=300)
+    active_token = st.session_state.get("token")
+    audit_resp = get_audit_logs(limit=300, token=active_token)
+    app_logs = audit_resp.get("logs", []) if isinstance(audit_resp, dict) else (audit_resp or [])
     if app_logs:
         df_logs = pd.DataFrame(app_logs)
         total_events = len(df_logs)

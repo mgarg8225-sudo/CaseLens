@@ -338,3 +338,68 @@ def test_statutory_policy_context_endpoint(api_client):
     assert "statutory_benchmarks" in data
     assert "external_policy_context" in data
     assert data["zero_pii_verified"] is True
+
+
+def test_evaluation_and_journey_endpoints(api_client):
+    """Verifies that evaluation and journey endpoints return expected analytical structures with zero PII."""
+    headers = {"X-API-Key": "viewer-key-leaky-2026"}
+    res_eval = api_client.get("/api/v1/evaluation", headers=headers)
+    assert res_eval.status_code == 200
+    assert "evaluation" in res_eval.json()
+    assert res_eval.json()["zero_pii_verified"] is True
+
+    res_jrn = api_client.get("/api/v1/journey", headers=headers)
+    assert res_jrn.status_code == 200
+    assert "journey" in res_jrn.json()
+    assert res_jrn.json()["zero_pii_verified"] is True
+
+
+def test_simulator_scenarios_and_run(api_client):
+    """Verifies simulator scenario retrieval and simulation execution."""
+    analyst_headers = {"X-API-Key": "analyst-key-leaky-2026"}
+    viewer_headers = {"X-API-Key": "viewer-key-leaky-2026"}
+
+    # Viewer forbidden
+    assert api_client.get("/api/v1/simulator/scenarios", headers=viewer_headers).status_code == 403
+
+    # Analyst allowed
+    scenarios_resp = api_client.get("/api/v1/simulator/scenarios", headers=analyst_headers)
+    assert scenarios_resp.status_code == 200
+    scenarios = scenarios_resp.json()["scenarios"]
+    assert len(scenarios) > 0
+
+    first_key = list(scenarios.keys())[0]
+    run_resp = api_client.post(
+        "/api/v1/simulator/run",
+        json={"scenario_key": first_key},
+        headers=analyst_headers
+    )
+    assert run_resp.status_code == 200
+    sim_res = run_resp.json()["simulation_result"]
+    assert "verdict" in sim_res
+    assert "pairwise_results" in sim_res
+
+
+def test_review_queue_and_audit_event_endpoints(api_client):
+    """Verifies review queue human review and audit event logging."""
+    admin_headers = {"X-API-Key": "admin-key-leaky-2026"}
+    analyst_headers = {"X-API-Key": "analyst-key-leaky-2026"}
+
+    # Analyst forbidden from review queue
+    assert api_client.get("/api/v1/review-queue", headers=analyst_headers).status_code == 403
+
+    # Admin allowed
+    rq_resp = api_client.get("/api/v1/review-queue", headers=admin_headers)
+    assert rq_resp.status_code == 200
+    rq_data = rq_resp.json()
+    assert "records" in rq_data
+    assert "total_pairs" in rq_data
+    assert rq_data["zero_pii_verified"] is True
+
+    # Audit event logging
+    log_resp = api_client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "PAGE_VISIT", "page": "📊 Executive Overview", "user_id": "analyst_1", "role": "analyst"}
+    )
+    assert log_resp.status_code == 200
+    assert log_resp.json()["status"] == "recorded"

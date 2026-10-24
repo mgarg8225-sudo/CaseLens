@@ -162,6 +162,20 @@ class ResetBudgetRequest(BaseModel):
     total_delta: float = Field(default=1e-4, gt=0.0, le=1e-2)
 
 
+class SimulatorRunRequest(BaseModel):
+    scenario_key: Optional[str] = None
+    custom_records: Optional[List[Dict[str, Any]]] = None
+    custom_title: Optional[str] = None
+
+
+class AuditLogEventRequest(BaseModel):
+    event_type: str
+    page: Optional[str] = None
+    user_id: Optional[str] = None
+    role: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+
+
 # ==============================================================================
 # 3. Persistent Audit Logger
 # ==============================================================================
@@ -180,7 +194,12 @@ class ApiAuditLogger:
         if os.path.exists(self.log_path):
             try:
                 with open(self.log_path, "r", encoding="utf-8") as f:
-                    self._entries = json.load(f)
+                    entries = json.load(f)
+                    # Clean out any old legacy username keys
+                    for e in entries:
+                        if "username" in e:
+                            e["user_id"] = e.pop("username")
+                    self._entries = entries
             except Exception:
                 self._entries = []
 
@@ -196,11 +215,23 @@ class ApiAuditLogger:
         zero_pii_verified: bool = True,
         latency_ms: float = 0.0,
         details: Optional[Dict[str, Any]] = None,
+        event_type: Optional[str] = None,
+        user_id: Optional[str] = None,
+        page: Optional[str] = None,
     ):
+        if not event_type:
+            if endpoint.startswith("/api/v1/auth/login"):
+                event_type = "LOGIN_SUCCESS" if 200 <= status_code < 300 else "LOGIN_FAILED"
+            else:
+                event_type = "API_REQUEST"
+
         entry = {
             "request_id": request_id,
             "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "user_id": user_id or "anonymous",
             "role": role,
+            "page": page or endpoint,
             "method": method,
             "endpoint": endpoint,
             "status_code": status_code,
@@ -254,6 +285,8 @@ class DataStore:
         self.category_disparities: Dict[str, Any] = {}
         self.summary: Dict[str, Any] = {}
         self.privacy_report: Dict[str, Any] = {}
+        self.evaluation: Dict[str, Any] = {}
+        self.journey: Dict[str, Any] = {}
         self.df_cases: Optional[pd.DataFrame] = None
         self.load_data()
 
@@ -298,6 +331,18 @@ class DataStore:
         if os.path.exists(p_path):
             with open(p_path, "r", encoding="utf-8") as f:
                 self.privacy_report = json.load(f)
+
+        # 7. Linkage Evaluation Metrics
+        e_path = os.path.join(self.data_dir, "evaluation_metrics.json")
+        if os.path.exists(e_path):
+            with open(e_path, "r", encoding="utf-8") as f:
+                self.evaluation = json.load(f)
+
+        # 8. Journey Metrics
+        j_path = os.path.join(self.data_dir, "journey_metrics.json")
+        if os.path.exists(j_path):
+            with open(j_path, "r", encoding="utf-8") as f:
+                self.journey = json.load(f)
 
         # 7. Reconstructed Events to Cases (for dynamic DP aggregation)
         ev_path = os.path.join(self.data_dir, "event_log.csv")
@@ -480,6 +525,19 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         api_key = request.headers.get("X-API-Key")
         if api_key in API_KEYS:
             role_header = API_KEYS[api_key].value
+        else:
+            auth_hdr = request.headers.get("Authorization", "")
+            if auth_hdr.lower().startswith("bearer "):
+                token_val = auth_hdr[7:].strip()
+                if token_val in API_KEYS:
+                    role_header = API_KEYS[token_val].value
+                elif token_val.count(".") == 2:
+                    try:
+                        from src.auth import decode_access_token
+                        p_info = decode_access_token(token_val)
+                        role_header = p_info.get("role", "viewer")
+                    except Exception:
+                        pass
 
         try:
             response = await call_next(request)
@@ -635,14 +693,57 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         No DP budget deducted (public policy reference data).
         """
         cache = load_cache(os.path.join(DATA_STORE.data_dir, "policy_context_cache.json"))
+        # Sanitize and rank sources server-side
+        from src.policy_context import filter_and_rank_sources
+        cleaned = {}
+        for k, v in cache.items():
+            if isinstance(v, dict) and "sources" in v:
+                entry = dict(v)
+                entry["sources"] = filter_and_rank_sources(entry["sources"], catalog_key=k)
+                cleaned[k] = entry
+            else:
+                cleaned[k] = v
         benchmarks = STATUTORY_BENCHMARKS
         payload = {
             "statutory_benchmarks": benchmarks,
-            "external_policy_context": cache,
+            "external_policy_context": cleaned,
             "source": "Statutory Legislation & TinyFish Policy Benchmarking Engine",
             "zero_pii_verified": True
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="policy_context")
+
+    @app.get("/api/v1/evaluation", tags=["Aggregates (Viewer+)"])
+    def get_evaluation_metrics(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Probabilistic record linkage evaluation metrics,
+        precision-recall curve data, and cluster-level purity/BCubed F1 benchmarks.
+        Zero PII.
+        """
+        eval_safe = {
+            k: v for k, v in DATA_STORE.evaluation.items()
+            if k not in ["error_diagnostics", "false_positives_sample", "false_negatives_sample"]
+        }
+        payload = {
+            "evaluation": eval_safe,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="evaluation_metrics")
+
+    @app.get("/api/v1/journey", tags=["Aggregates (Viewer+)"])
+    def get_journey_metrics(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Reconstructed longitudinal journey metrics and milestone duration distributions.
+        Zero PII.
+        """
+        payload = {
+            "journey": DATA_STORE.journey,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="journey_metrics")
 
     # ==========================================================================
     # 10. Endpoints: Analyst+ (Analyst, Admin)
@@ -809,6 +910,63 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0)
 
+    SIMULATOR_SAFE_FIELDS = {
+        "name", "guardian", "relative_name", "full_name",
+        "scenario_3_swapped_names", "records"
+    }
+
+    @app.get("/api/v1/simulator/scenarios", tags=["Case Simulator (Analyst+)"])
+    def get_simulator_scenarios(
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Pre-configured synthetic judicial case scenarios and agency records for simulation.
+        Accessible to Analysts and Administrators.
+        """
+        from src.case_simulator import SCENARIOS
+        payload = {
+            "scenarios": SCENARIOS,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=0.0,
+            query_id="simulator_scenarios",
+            allowed_fields=SIMULATOR_SAFE_FIELDS
+        )
+
+    @app.post("/api/v1/simulator/run", tags=["Case Simulator (Analyst+)"])
+    def run_case_simulation(
+        request_body: SimulatorRunRequest,
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Executes real-time Fellegi-Sunter record linkage and journey reconstruction
+        for a scenario key or custom synthetic agency records.
+        Accessible to Analysts and Administrators.
+        """
+        from src.case_simulator import run_simulation
+        if request_body.custom_records:
+            sim_result = run_simulation(
+                request_body.custom_records,
+                custom_title=request_body.custom_title or "Custom Scenario"
+            )
+        elif request_body.scenario_key:
+            sim_result = run_simulation(request_body.scenario_key)
+        else:
+            raise HTTPException(status_code=400, detail="Must provide either scenario_key or custom_records.")
+
+        payload = {
+            "simulation_result": sim_result,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=0.0,
+            query_id="simulator_run",
+            allowed_fields=SIMULATOR_SAFE_FIELDS
+        )
+
     # ==========================================================================
     # 11. Endpoints: Admin Only
     # ==========================================================================
@@ -900,6 +1058,73 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"External policy refresh failed: {str(e)}"
             )
+
+    @app.get("/api/v1/review-queue", tags=["Admin Controls"])
+    def get_review_queue(
+        limit: int = Query(default=200, ge=1, le=1000),
+        user: UserContext = Depends(require_role(Role.ADMIN))
+    ):
+        """
+        Returns uncertain candidate pairs (0.50 <= P < 0.85) for human adjudication.
+        Strictly strips all direct personal identifiers (names, relatives, addresses).
+        Exposes only pseudonymized record IDs, incident dates, and match probabilities.
+        Accessible exclusively to Administrators.
+        """
+        review_path = os.path.join(DATA_STORE.data_dir, "review_queue.csv")
+        safe_cols = [
+            "unique_id_l", "unique_id_r", "district_l", "district_r",
+            "incident_date_l", "incident_date_r", "match_probability",
+            "match_weight", "review_status"
+        ]
+        records = []
+        total_pairs = 0
+        avg_prob = 0.0
+
+        if os.path.exists(review_path):
+            try:
+                df_rq = pd.read_csv(review_path)
+                total_pairs = len(df_rq)
+                if "match_probability" in df_rq.columns and len(df_rq) > 0:
+                    avg_prob = float(df_rq["match_probability"].mean())
+                display_cols = [c for c in safe_cols if c in df_rq.columns]
+                df_display = df_rq[display_cols].head(limit)
+                records = df_display.to_dict(orient="records")
+            except Exception:
+                records = []
+
+        payload = {
+            "total_pairs": total_pairs,
+            "avg_match_probability": round(avg_prob, 3),
+            "accept_threshold": 0.85,
+            "reject_threshold": 0.50,
+            "records": records,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="review_queue")
+
+    @app.post("/api/v1/audit/log", tags=["System"])
+    def record_audit_log_event(
+        request: Request,
+        request_body: AuditLogEventRequest,
+    ):
+        """
+        Records an application or session audit event (login, logout, page visit, access denied)
+        into the immutable audit ledger with zero credentials or PII.
+        """
+        client_ip = request.client.host if request.client else "127.0.0.1"
+        DATA_STORE.audit_logger.log_event(
+            request_id=f"audit_{uuid.uuid4().hex[:8]}",
+            role=request_body.role or "viewer",
+            method="POST",
+            endpoint=f"/audit/event/{request_body.event_type.lower()}",
+            status_code=200,
+            client_ip=client_ip,
+            event_type=request_body.event_type,
+            user_id=request_body.user_id or "anonymous",
+            page=request_body.page,
+            details=request_body.details or {}
+        )
+        return {"status": "recorded", "event_type": request_body.event_type}
 
     return app
 
