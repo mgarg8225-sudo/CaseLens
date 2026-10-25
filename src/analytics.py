@@ -992,10 +992,12 @@ def compute_filtered_evaluation(
         }
 
     num_cases = df_filtered["case_id"].nunique()
-    ratio = num_cases / 5125.0
     base_pairwise = baseline_evaluation.get("pairwise_metrics", {}) if baseline_evaluation else {}
     base_cluster = baseline_evaluation.get("cluster_metrics", {}) if baseline_evaluation else {}
     base_table = baseline_evaluation.get("pairwise_threshold_table", []) if baseline_evaluation else []
+
+    base_cases = float(base_cluster.get("total_true_cases_evaluated") or base_pairwise.get("total_cases") or 5125.0)
+    ratio = num_cases / base_cases if base_cases > 0 else 1.0
 
     tot_candidate = max(20, int(round(base_pairwise.get("total_candidate_pairs", 706105) * ratio)))
     tot_true = max(5, int(round(base_pairwise.get("total_true_pairs", 17637) * ratio)))

@@ -59,7 +59,12 @@ from app.api_client import (
     check_user_permission,
     normalize_role,
     SAMPLE_JSON_DEFAULTS,
+    get_analyze_template,
+    run_analyze_sample,
+    run_analyze_upload,
+    run_analyze_case,
 )
+from src.upload_analysis import build_dashboard_bundle_from_analysis
 
 
 def _is_running_in_streamlit() -> bool:
@@ -480,7 +485,7 @@ def load_data_bundle(
 
 
 def render_filter_badge(district: str, date_range: Any, stage: str, remaining_eps: Any):
-    """Renders a small badge at the top of each page showing active global filters."""
+    """Renders a small badge at the top of each page showing active global filters and active dataset."""
     dist_label = district if district and district != "All Districts" else "All Districts"
     stage_label = stage if stage and stage != "All Stages" else "All Stages"
     
@@ -492,7 +497,12 @@ def render_filter_badge(district: str, date_range: Any, stage: str, remaining_ep
         except Exception:
             date_label = f"{date_range[0]} – {date_range[1]}"
 
-    eps_str = f"{remaining_eps:.2f}" if isinstance(remaining_eps, (int, float)) else str(remaining_eps or "7.65")
+    eps_str = f"{remaining_eps:.2f}" if isinstance(remaining_eps, (int, float)) else str(remaining_eps or "10.00")
+    
+    active_lbl = st.session_state.get("active_dataset_label", "No dataset analyzed yet")
+    is_act = st.session_state.get("active_dataset_id") is not None
+    act_col = "#059669" if is_act else "#B45309"
+    act_bg = "#ECFDF5" if is_act else "#FFFBEB"
 
     badge_html = f"""
     <div style="display: flex; align-items: center; justify-content: space-between; background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 7px 14px; margin-bottom: 14px; font-size: 0.80rem; color: #5F5F5F;">
@@ -501,6 +511,7 @@ def render_filter_badge(district: str, date_range: Any, stage: str, remaining_ep
             <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">District: {dist_label}</span>
             <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">Period: {date_label}</span>
             <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">Milestone: {stage_label}</span>
+            <span style="background: {act_bg}; color: {act_col}; border: 1px solid {act_col}; padding: 2px 7px; border-radius: 3px; font-weight: 600;">📁 Dataset: {active_lbl}</span>
         </div>
         <div style="font-weight: 600; color: #222222; white-space: nowrap;">
             🛡️ Remaining DP Budget: <span style="color: #8B1E3F;">{eps_str} ε</span>
@@ -508,6 +519,60 @@ def render_filter_badge(district: str, date_range: Any, stage: str, remaining_ep
     </div>
     """
     st.markdown(badge_html, unsafe_allow_html=True)
+
+
+def request_navigation(page_name: str):
+    """Sets a pending navigation request to be applied before the sidebar radio is instantiated."""
+    st.session_state["nav_page_request"] = page_name
+
+
+def render_no_active_dataset_banner():
+    """Renders user-requested message when no dataset is analyzed yet."""
+    st.markdown("""
+        <div style="background: #FFFFFF; border: 1px solid #CBD5E1; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 24px 28px; margin: 24px 0;">
+            <div style="display: flex; align-items: flex-start; gap: 14px;">
+                <div style="font-size: 1.8rem; line-height: 1;">ℹ️</div>
+                <div>
+                    <div style="font-size: 1.15rem; font-weight: 700; color: #222222; margin-bottom: 6px;">
+                        No dataset analyzed yet. Upload CSVs or run sample analysis to populate the dashboard.
+                    </div>
+                    <div style="font-size: 0.88rem; color: #5F5F5F; line-height: 1.5; margin-bottom: 16px;">
+                        To protect survivor privacy and ensure analytical integrity, CaseLens does not show default pre-populated microdata.
+                        Please upload your 5 multi-agency CSV tables (Police FIR, Hospital MLC, Forensic Lab, Prosecution, Court)
+                        or run the benchmark sample analysis in the <strong>Analyze Your Data</strong> view.
+                    </div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, _ = st.columns([3, 4, 3])
+    with col1:
+        if st.button(
+            "🔬 Go to Analyze Your Data",
+            key=f"btn_goto_analyze_{st.session_state.get('nav_page_selection', 'p')}",
+            type="primary",
+            width="stretch",
+            on_click=request_navigation,
+            args=("🔬 Analyze Your Data",)
+        ):
+            request_navigation("🔬 Analyze Your Data")
+            st.rerun()
+    with col2:
+        if st.button("🚀 Run Sample Benchmark Analysis", key=f"btn_run_sample_{st.session_state.get('nav_page_selection', 'p')}", width="stretch"):
+            with st.spinner("Executing record linkage and process mining on sample benchmark datasets..."):
+                smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
+                if not smpl_res.get("error"):
+                    total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
+                    st.session_state["active_dataset_id"] = "sample"
+                    st.session_state["active_dataset_label"] = f"Benchmark Sample Dataset ({total_c:,} cases)"
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(smpl_res)
+                    st.session_state["active_analysis_result"] = smpl_res
+                    st.session_state["sample_analysis_res"] = smpl_res
+                    st.success("Benchmark sample dataset loaded successfully.")
+                    st.rerun()
+                else:
+                    st.error(f"Failed to load sample dataset: {smpl_res.get('error')}")
 
 
 def render_too_few_cases_warning():
@@ -766,12 +831,89 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
             st.session_state.clear()
             st.rerun()
 
+        # Active Dataset indicator & controls in sidebar
+        active_id = st.session_state.get("active_dataset_id")
+        active_lbl = st.session_state.get("active_dataset_label", "No dataset analyzed yet")
+        if active_id == "uploaded":
+            ds_bg, ds_border, ds_title = "#ECFDF5", "#059669", "📁 Active: Uploaded CSVs"
+        elif active_id == "sample":
+            ds_bg, ds_border, ds_title = "#EFF6FF", "#2563EB", "📊 Active: Benchmark Sample"
+        elif active_id == "case":
+            ds_bg, ds_border, ds_title = "#F5F3FF", "#7C3AED", "🔍 Active: Single Case Analysis"
+        else:
+            ds_bg, ds_border, ds_title = "#FFFBEB", "#D97706", "⚠️ No Active Dataset"
+
+        st.markdown(f"""
+            <div style="background: {ds_bg}; border: 1px solid {ds_border}; border-left: 3px solid {ds_border}; border-radius: 4px; padding: 10px 12px; margin-top: 10px; margin-bottom: 12px;">
+                <div style="font-size: 0.70rem; color: #5F5F5F; text-transform: uppercase; font-weight: 700; letter-spacing: 0.03em;">Active Dataset</div>
+                <div style="font-size: 0.85rem; font-weight: 700; color: #222222; margin-top: 2px;">{ds_title}</div>
+                <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 2px;">{active_lbl}</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Context-dependent switcher buttons
+        if active_id != "sample":
+            if st.button("🔄 Switch to Benchmark Sample", key="sb_switch_sample", width="stretch", help="Switch active dashboard dataset to benchmark sample"):
+                with st.spinner("Loading benchmark sample dataset..."):
+                    smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
+                    if not smpl_res.get("error"):
+                        total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
+                        st.session_state["active_dataset_id"] = "sample"
+                        st.session_state["active_dataset_label"] = f"Benchmark Sample Dataset ({total_c:,} cases)"
+                        st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(smpl_res)
+                        st.session_state["active_analysis_result"] = smpl_res
+                        st.session_state["sample_analysis_res"] = smpl_res
+                        st.rerun()
+
+        if active_id != "uploaded":
+            up_cached = st.session_state.get("upload_analysis_res")
+            if up_cached and not up_cached.get("error"):
+                if st.button("🔄 Switch to Uploaded CSVs", key="sb_switch_upload", width="stretch", help="Switch back to uploaded dataset"):
+                    total_c = up_cached.get("summary_kpis", {}).get("total_cases") or up_cached.get("funnel", {}).get("total_cases", 0)
+                    st.session_state["active_dataset_id"] = "uploaded"
+                    st.session_state["active_dataset_label"] = f"Uploaded CSVs ({total_c:,} cases)"
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(up_cached)
+                    st.session_state["active_analysis_result"] = up_cached
+                    st.rerun()
+
+        if active_id != "case":
+            case_cached = st.session_state.get("single_case_analysis_res")
+            if case_cached and not case_cached.get("error"):
+                if st.button("🔄 Switch to Single Case", key="sb_switch_case", width="stretch", help="Switch back to single case analysis"):
+                    m_name = case_cached.get("masked_survivor_name", "Anonymous")
+                    st.session_state["active_dataset_id"] = "case"
+                    st.session_state["active_dataset_label"] = f"Single Case ({m_name})"
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis({
+                        "is_single_case": True,
+                        **case_cached
+                    })
+                    st.session_state["active_analysis_result"] = case_cached
+                    st.rerun()
+
+        # Labelled reset action
+        if active_id:
+            if st.button("❌ Clear Active Dataset", key="sb_clear_active_btn", width="stretch", help="Clear active dataset and reset dashboard to empty state"):
+                st.session_state["active_dataset_id"] = None
+                st.session_state["active_dataset_label"] = None
+                st.session_state["active_dataset_bundle"] = None
+                st.session_state["active_analysis_result"] = None
+                st.session_state["single_case_analysis_res"] = None
+                st.session_state["upload_analysis_res"] = None
+                st.session_state["sample_analysis_res"] = None
+                st.rerun()
+
         st.markdown("### 🧭 Navigation")
         allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])
+        if "nav_page_request" in st.session_state:
+            requested_page = st.session_state.pop("nav_page_request")
+            if requested_page in allowed_pages:
+                st.session_state["nav_page_selection"] = requested_page
+        if "nav_page_selection" not in st.session_state or st.session_state["nav_page_selection"] not in allowed_pages:
+            st.session_state["nav_page_selection"] = allowed_pages[0]
         PAGE = st.radio(
             label="Select Analytical View",
             options=allowed_pages,
-            index=0,
+            key="nav_page_selection",
             label_visibility="collapsed"
         )
 
@@ -857,23 +999,22 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
     if FILTER_TO and FILTER_TO < datetime(2026, 11, 27).date():
         sel_to = str(FILTER_TO)
 
-    # Fetch data recomputed on FastAPI server
-    DATA = load_data_bundle(
-        token=st.session_state.get("token"),
-        district=sel_district,
-        from_date=sel_from,
-        to_date=sel_to,
-        stage=sel_stage,
-        epsilon=EPSILON_SIM,
-        k_threshold=int(K_ANONYMITY)
-    )
-    KPIS = compute_dashboard_kpis(DATA)
+    # Resolve active dashboard dataset: Only populated when an analysis has been executed!
+    active_ds_id = st.session_state.get("active_dataset_id")
+    active_bundle = st.session_state.get("active_dataset_bundle")
+
+    if active_ds_id and active_bundle:
+        DATA = active_bundle
+        KPIS = compute_dashboard_kpis(DATA)
+    else:
+        DATA = {}
+        KPIS = compute_dashboard_kpis({})
 
     # Remaining DP budget widget in sidebar
     rem_budget = DATA.get("summary", {}).get("privacy_metadata", {}).get(
         "remaining_budget",
-        KPIS.get("epsilon_remaining_display", "7.65")
-    )
+        KPIS.get("epsilon_remaining_display", NA)
+    ) if active_ds_id else NA
     with st.sidebar:
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 12px; margin-top: 10px; margin-bottom: 12px;">
@@ -891,10 +1032,11 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
                     st.cache_data.clear()
                     st.rerun()
 
+        scope_cases = f"{KPIS['reconstructed_cases_display']} Cases in Scope" if active_ds_id else "0 (No Dataset Active)"
         st.markdown(f"""
             <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
                 <strong style="color: #222222;">System Integrity</strong><br/>
-                • {KPIS['reconstructed_cases_display']} Cases in Scope<br/>
+                • {scope_cases}<br/>
                 • Pure Laplace Differential Privacy<br/>
                 • Zero-PII Response Verification<br/>
                 • Statutory Benchmarking
@@ -986,11 +1128,690 @@ def get_plot_layout() -> Dict[str, Any]:
 
 
 # ==============================================================================
+# PAGE 0: 🔬 Analyze Your Data (Default Landing View)
+# ==============================================================================
+
+if PAGE == "🔬 Analyze Your Data" or (PAGE and "Analyze Your Data" in PAGE):
+    st.markdown("""
+        <div class="hero-banner">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
+                <div>
+                    <div style="font-size: 1.25rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+                    <div style="font-size: 0.88rem; color: #8B1E3F; font-weight: 600; margin-bottom: 12px;">The Leaky Pipeline: Tracing Gaps in the Justice System</div>
+                </div>
+                <div style="display: flex; gap: 6px; align-items: center; padding-top: 4px; flex-wrap: wrap;">
+                    <span class="badge badge-privacy">In-Memory Linkage</span>
+                    <span class="badge badge-normal">Zero-PII Storage</span>
+                    <span class="badge badge-critical">Strict RBAC</span>
+                </div>
+            </div>
+            <div class="hero-title">Analyze Your Data: Multi-Agency Record Linkage & Journey Reconstruction</div>
+            <div class="hero-subtitle">
+                Upload multi-agency CSVs or enter a synthetic case to evaluate probabilistic record linkage,
+                reconstruct longitudinal journey timelines, and detect systemic delay bottlenecks.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # 1. Warning Callout at top of page
+    st.warning("⚠️ **Warning**: Use only synthetic or fictional data. Do not enter real survivor details.")
+
+    # 2. Server-side role enforcement (Viewers get 403 Forbidden)
+    if CURRENT_ROLE == "viewer":
+        st.error(
+            "⛔ **Access Denied (HTTP 403)**: Insufficient privileges. 'Analyze Your Data' is restricted "
+            "to Institutional Analyst and Admin roles. Viewers are not authorized to upload or analyze microdata."
+        )
+        st.stop()
+
+    def render_csv_analysis_results(res: Dict[str, Any], title_prefix: str = ""):
+        """Renders the 5 result tabs for CSV and sample runs using strictly run-local data."""
+        kpis = res.get("summary_kpis", {})
+        linkage_stats = res.get("linkage_stats", {})
+        bottlenecks_data = res.get("bottlenecks", {})
+        funnel_data = res.get("funnel_stages", [])
+        privacy_data = res.get("privacy_info", {})
+
+        st.markdown(f"### 📊 Analysis Results: {title_prefix}")
+
+        r_overview, r_funnel, r_bottlenecks, r_linkage, r_privacy = st.tabs([
+            "Overview", "Funnel", "Bottlenecks", "Linkage", "Privacy"
+        ])
+
+        with r_overview:
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Reconstructed Cases</div>
+                        <div class="metric-value">{kpis.get('total_cases', 0):,}</div>
+                        <div class="metric-delta">Unified Case Entities</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c2:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">FIR Initiation Rate</div>
+                        <div class="metric-value">{kpis.get('fir_rate_pct', 0.0):.1f}%</div>
+                        <div class="metric-delta">Inception Rate</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c3:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Reaching Verdict</div>
+                        <div class="metric-value">{kpis.get('verdict_rate_pct', 0.0):.1f}%</div>
+                        <div class="metric-delta">Full Adjudication</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with c4:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Auto-Accepted Pairs</div>
+                        <div class="metric-value">{linkage_stats.get('pairs_linked', 0):,}</div>
+                        <div class="metric-delta">Cross-Agency Links</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<br/>", unsafe_allow_html=True)
+            insight_text = kpis.get("one_line_insight", "Analysis complete.")
+            st.markdown(f"""
+                <div class="metric-card" style="border-left: 3px solid #8B1E3F; padding: 14px 18px;">
+                    <div style="font-size: 0.78rem; text-transform: uppercase; color: #8B1E3F; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 4px;">Analytical Finding</div>
+                    <div style="font-size: 1.02rem; font-weight: 600; color: #222222; line-height: 1.4;">💡 {insight_text}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        with r_funnel:
+            if funnel_data:
+                stages = [f.get("stage_name") for f in funnel_data]
+                counts = [f.get("raw_count", 0) for f in funnel_data]
+                display_counts = [str(f.get("display_count", f.get("raw_count", 0))) for f in funnel_data]
+                retentions = [f.get("retention_from_fir_pct", 0.0) for f in funnel_data]
+
+                fig_funnel = go.Figure()
+                fig_funnel.add_trace(go.Bar(
+                    x=stages,
+                    y=counts,
+                    marker=dict(color=["#8B1E3F", "#A33857", "#BD5371", "#D6708D", "#B45309"]),
+                    text=[f"{c} cases ({r}%)" for c, r in zip(display_counts, retentions)],
+                    textposition="auto",
+                    name="Cases Reached"
+                ))
+                fig_funnel.update_layout(
+                    get_plot_layout(),
+                    title="Case Progression Funnel Across Institutional Stages",
+                    xaxis_title="Institutional Milestone",
+                    yaxis_title="Case Volume"
+                )
+                st.plotly_chart(fig_funnel, width="stretch")
+
+                # Funnel table
+                df_funnel_tbl = pd.DataFrame([
+                    {
+                        "Stage": f.get("stage_name"),
+                        "Case Count": f.get("display_count"),
+                        "Step Conversion (%)": f"{f.get('step_conversion_pct', 0.0):.1f}%",
+                        "Retention from FIR (%)": f"{f.get('retention_from_fir_pct', 0.0):.1f}%",
+                        "Attrition Leak (%)": f"{f.get('step_leak_pct', 0.0):.1f}%"
+                    }
+                    for f in funnel_data
+                ])
+                st.dataframe(df_funnel_tbl, width="stretch", hide_index=True)
+            else:
+                st.info("No funnel stage records available.")
+
+        with r_bottlenecks:
+            bb = bottlenecks_data.get("biggest_bottleneck")
+            if bb:
+                st.markdown(f"""
+                    <div class="metric-card" style="border-left: 3px solid #B45309; margin-bottom: 16px;">
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: #B45309; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 2px;">🚨 Primary Systemic Bottleneck</div>
+                        <div style="font-size: 1.05rem; font-weight: 700; color: #222222;">{bb.get('pair')}: {bb.get('median_days')} days turnaround ({bb.get('delay_multiplier')}× Baseline)</div>
+                        <div style="font-size: 0.85rem; color: #5F5F5F; margin-top: 4px;">{bb.get('summary')} across {bb.get('sample_count')} observed case transitions.</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+            trans_dict = bottlenecks_data.get("transitions", {})
+            if trans_dict:
+                trans_list = []
+                for p_name, t_val in trans_dict.items():
+                    trans_list.append({
+                        "Transition": p_name,
+                        "Observed Median (Days)": t_val.get("median_days", 0.0),
+                        "Baseline Median (Days)": t_val.get("baseline_median_days", 0.0),
+                        "Delay Multiplier": t_val.get("delay_multiplier_vs_baseline", 1.0),
+                        "Statutory Benchmark (Days)": t_val.get("statutory_benchmark_days") or "N/A"
+                    })
+
+                df_b_plot = pd.DataFrame(trans_list)
+                colors = ["#B45309" if bb and row["Transition"] == bb.get("pair") else "#8C8C8C" for _, row in df_b_plot.iterrows()]
+
+                fig_b = go.Figure()
+                fig_b.add_trace(go.Bar(
+                    y=df_b_plot["Transition"],
+                    x=df_b_plot["Observed Median (Days)"],
+                    orientation="h",
+                    marker=dict(color=colors),
+                    text=[f"{m:.1f}d ({r}x)" for m, r in zip(df_b_plot["Observed Median (Days)"], df_b_plot["Delay Multiplier"])],
+                    textposition="outside",
+                    name="Observed Turnaround"
+                ))
+                fig_b.update_layout(
+                    get_plot_layout(),
+                    title="Per-Stage Turnaround Duration (Amber = Primary Bottleneck)",
+                    xaxis_title="Turnaround Duration (Days)",
+                    yaxis=dict(autorange="reversed")
+                )
+                st.plotly_chart(fig_b, width="stretch")
+
+                st.dataframe(df_b_plot, width="stretch", hide_index=True)
+            else:
+                st.info("No inter-stage transitions with sufficient sample size observed.")
+
+        with r_linkage:
+            l_method = linkage_stats.get("linkage_method", "Fellegi-Sunter Pairwise Scoring (case_simulator)")
+            st.markdown(f"""
+                <div style="background: #F0ECE5; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 10px 14px; margin-bottom: 16px;">
+                    <div style="font-size: 0.75rem; color: #5F5F5F; text-transform: uppercase; font-weight: 700;">Record Linkage Methodology</div>
+                    <div style="font-size: 1.05rem; font-weight: 700; color: #8B1E3F;">{l_method}</div>
+                    <div style="font-size: 0.82rem; color: #5F5F5F; margin-top: 2px;">
+                        Calibrated Bayesian log-odds evaluation using Double Metaphone phonetic normalization,
+                        Jaro-Winkler string similarity, and temporal tolerance windows.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            lc1, lc2, lc3 = st.columns(3)
+            with lc1:
+                st.metric("Total Pairs Evaluated", f"{linkage_stats.get('total_pairs_evaluated', 0):,}")
+            with lc2:
+                st.metric("Auto-Accepted Links (P ≥ 0.85)", f"{linkage_stats.get('pairs_linked', 0):,}")
+            with lc3:
+                st.metric("Review Queue (0.50 ≤ P < 0.85)", f"{linkage_stats.get('review_queue_size', 0):,}")
+
+            rq = linkage_stats.get("review_queue", [])
+            if rq:
+                st.markdown("#### 📋 Human Review Queue Candidates (Sample)")
+                df_rq = pd.DataFrame(rq)
+                st.dataframe(df_rq, width="stretch", hide_index=True)
+
+        with r_privacy:
+            st.markdown("""
+                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #059669; border-radius: 4px; padding: 14px 16px; margin-bottom: 14px;">
+                    <div style="font-size: 0.95rem; font-weight: 700; color: #059669;">🛡️ Privacy & Confidentiality Protection Active</div>
+                    <div style="font-size: 0.85rem; color: #5F5F5F; margin-top: 4px;">
+                        All survivor names and personal identifiers are sanitized server-side before response transmission.
+                        Microdata records are stored strictly in volatile memory and never persisted to database or disk.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("#### 🔒 Server-Side Sanitized Fields")
+            masked_fields = privacy_data.get("masked_fields", ["survivor_name", "guardian_name", "locality"])
+            for mf in masked_fields:
+                st.markdown(f"- ` {mf} `: Masked using non-reversible initial retention (e.g. `S***a S***a`).")
+
+            suppressed = privacy_data.get("suppressed_groups", [])
+            st.markdown("#### 🚫 Small-Cell k-Anonymity Suppression (k < 5)")
+            if suppressed:
+                st.markdown("The following small cohorts were suppressed to comply with k-anonymity guarantees:")
+                for sg in suppressed:
+                    st.markdown(f"- ⚠️ {sg}")
+            else:
+                st.success("No small-cell cohorts below the k=5 threshold were detected in this analysis run.")
+
+    # 3. Three Input Tabs
+    tab_case, tab_upload, tab_sample = st.tabs([
+        "Enter your own case", "Upload CSVs", "Use sample files"
+    ])
+
+    # -------------------------------------------------------------------------
+    # TAB 1: Enter your own case
+    # -------------------------------------------------------------------------
+    with tab_case:
+        st.markdown("""
+            <div style="margin-bottom: 14px;">
+                <div style="font-size: 1.05rem; font-weight: 700; color: #222222;">Manual Case Entry</div>
+                <div style="font-size: 0.85rem; color: #5F5F5F;">
+                    Enter records across at least 2 institutional stages for a synthetic case.
+                    CaseLens will evaluate pairwise match probabilities, reconstruct the timeline,
+                    detect stall points, and mask survivor details server-side.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        col_ex1, col_ex2 = st.columns([2, 8])
+        with col_ex1:
+            if st.button("✨ Fill Example Case", key="btn_fill_example_case", width="stretch"):
+                st.session_state["ec_fir_no"] = "FIR-2024-D3-0912"
+                st.session_state["ec_fir_name"] = "Sunita Sharma"
+                st.session_state["ec_fir_guardian"] = "Ramesh Sharma"
+                st.session_state["fir_father_or_husband"] = "Ramesh Sharma"
+                st.session_state["ec_fir_age"] = "29"
+                st.session_state["ec_fir_locality"] = "Civil Lines"
+                st.session_state["ec_fir_district"] = "D3_Rudrapur"
+                st.session_state["ec_fir_inc_date"] = "2024-03-01"
+                st.session_state["fir_incident_date"] = "2024-03-01"
+                st.session_state["ec_fir_rec_date"] = "2024-03-02"
+                st.session_state["ec_fir_offense"] = "Sec 376 IPC"
+                st.session_state["ec_fir_station"] = "PS Rudrapur Central"
+
+                st.session_state["ec_mlc_no"] = "MLC-2024-D3-0844"
+                st.session_state["ec_mlc_name"] = "Suneeta Sharma"  # Phonetic transliteration variant
+                st.session_state["ec_mlc_guardian"] = "Ramesh Sharma"
+                st.session_state["mlc_guardian_name"] = "Ramesh Sharma"
+                st.session_state["ec_mlc_age"] = "29"
+                st.session_state["ec_mlc_locality"] = "Civil Lines"
+                st.session_state["ec_mlc_district"] = "D3_Rudrapur"
+                st.session_state["ec_mlc_inc_date"] = "2024-03-01"
+                st.session_state["ec_mlc_rec_date"] = "2024-03-02"
+                st.session_state["ec_mlc_injury"] = "Physical Trauma"
+                st.session_state["ec_mlc_hospital"] = "District Hospital Rudrapur"
+
+                st.session_state["ec_fsl_no"] = "FSL-2024-D3-0412"
+                st.session_state["ec_fsl_name"] = "Sunita Sharma"
+                st.session_state["ec_fsl_guardian"] = "Sharma Ramesh"  # Transposed name token
+                st.session_state["fsl_guardian_name"] = "Sharma Ramesh"
+                st.session_state["ec_fsl_age"] = "29"
+                st.session_state["ec_fsl_district"] = "D3_Rudrapur"
+                st.session_state["ec_fsl_inc_date"] = "2024-03-05"
+                st.session_state["ec_fsl_rec_date"] = "2024-04-18"
+                st.session_state["ec_fsl_evidence"] = "Biological DNA"
+                st.session_state["ec_fsl_division"] = "Serology"
+
+                st.session_state["ec_pros_no"] = "PP-CHG-2024-D3-0301"
+                st.session_state["ec_pros_name"] = "Sunita Sharma"
+                st.session_state["ec_pros_guardian"] = "Ramesh Sharma"
+                st.session_state["ec_pros_age"] = "29"
+                st.session_state["ec_pros_address"] = "Civil Lines, Rudrapur"
+                st.session_state["ec_pros_district"] = "D3_Rudrapur"
+                st.session_state["ec_pros_inc_date"] = "2024-03-01"
+                st.session_state["pros_incident_date"] = "2024-03-01"
+                st.session_state["ec_pros_rec_date"] = "2024-05-20"
+                st.session_state["ec_pros_cat"] = "rape"
+                st.session_state["ec_pros_off"] = "PP Office Rudrapur"
+
+                st.session_state["ec_crt_no"] = ""
+                st.session_state["ec_crt_name"] = ""
+                st.session_state["ec_crt_guardian"] = ""
+                st.session_state["court_father_or_husband"] = ""
+                st.session_state["ec_crt_age"] = ""
+                st.session_state["ec_crt_locality"] = ""
+                st.session_state["ec_crt_district"] = ""
+                st.session_state["ec_crt_inc_date"] = ""
+                st.session_state["ec_crt_rec_date"] = ""
+                st.session_state["ec_crt_status"] = ""
+                st.session_state["ec_crt_court"] = ""
+                st.rerun()
+
+        with col_ex2:
+            if st.button("🗑️ Clear Form", key="btn_clear_example_case"):
+                for k in list(st.session_state.keys()):
+                    if k.startswith("ec_") or k in [
+                        "fir_father_or_husband", "fir_incident_date",
+                        "mlc_guardian_name", "fsl_guardian_name",
+                        "pros_incident_date", "court_father_or_husband"
+                    ]:
+                        del st.session_state[k]
+                st.rerun()
+
+        with st.form("manual_case_form"):
+            # Section 1: Police FIR
+            with st.expander("1. Police FIR (First Information Report)", expanded=True):
+                f_c1, f_c2 = st.columns(2)
+                with f_c1:
+                    fir_number = st.text_input("FIR Number", value=st.session_state.get("ec_fir_no", ""))
+                    complainant_name = st.text_input("Complainant / Survivor Name", value=st.session_state.get("ec_fir_name", ""))
+                    father_or_husband = st.text_input("Father or Husband Name", value=st.session_state.get("ec_fir_guardian", ""), key="fir_father_or_husband")
+                    age = st.text_input("Age", value=st.session_state.get("ec_fir_age", ""))
+                    locality = st.text_input("Locality / Address", value=st.session_state.get("ec_fir_locality", ""))
+                with f_c2:
+                    district = st.text_input("District", value=st.session_state.get("ec_fir_district", ""))
+                    incident_date = st.text_input("Incident Date (YYYY-MM-DD)", value=st.session_state.get("ec_fir_inc_date", ""), key="fir_incident_date")
+                    fir_date = st.text_input("FIR Registration Date (YYYY-MM-DD)", value=st.session_state.get("ec_fir_rec_date", ""))
+                    offense_category = st.text_input("Offense Category", value=st.session_state.get("ec_fir_offense", ""))
+                    police_station = st.text_input("Police Station", value=st.session_state.get("ec_fir_station", ""))
+
+            # Section 2: Hospital MLC
+            with st.expander("2. Hospital MLC (Medico-Legal Case)", expanded=True):
+                m_c1, m_c2 = st.columns(2)
+                with m_c1:
+                    mlc_number = st.text_input("MLC Number", value=st.session_state.get("ec_mlc_no", ""))
+                    patient_name = st.text_input("Patient Name", value=st.session_state.get("ec_mlc_name", ""))
+                    guardian_name = st.text_input("Guardian Name", value=st.session_state.get("ec_mlc_guardian", ""), key="mlc_guardian_name")
+                    dob = st.text_input("Age or DOB (YYYY-MM-DD)", value=st.session_state.get("ec_mlc_age", ""))
+                    residential_locality = st.text_input("Residential Locality", value=st.session_state.get("ec_mlc_locality", ""))
+                with m_c2:
+                    mlc_district = st.text_input("Hospital District", value=st.session_state.get("ec_mlc_district", ""))
+                    mlc_incident_date = st.text_input("Reported Incident Date", value=st.session_state.get("ec_mlc_inc_date", ""))
+                    examination_date = st.text_input("Examination Date (YYYY-MM-DD)", value=st.session_state.get("ec_mlc_rec_date", ""))
+                    injury_type = st.text_input("Injury Classification", value=st.session_state.get("ec_mlc_injury", ""))
+                    hospital_name = st.text_input("Hospital Name", value=st.session_state.get("ec_mlc_hospital", ""))
+
+            # Section 3: Forensic Science Lab (FSL)
+            with st.expander("3. Forensic Science Lab (FSL)", expanded=False):
+                fs_c1, fs_c2 = st.columns(2)
+                with fs_c1:
+                    fsl_case_number = st.text_input("FSL Case Number", value=st.session_state.get("ec_fsl_no", ""))
+                    subject_name = st.text_input("Subject / Victim Name", value=st.session_state.get("ec_fsl_name", ""))
+                    fsl_guardian = st.text_input("Guardian Name", value=st.session_state.get("ec_fsl_guardian", ""), key="fsl_guardian_name")
+                    fsl_age = st.text_input("Subject Age", value=st.session_state.get("ec_fsl_age", ""))
+                with fs_c2:
+                    fsl_district = st.text_input("FSL District", value=st.session_state.get("ec_fsl_district", ""))
+                    sample_receipt_date = st.text_input("Sample Receipt Date (YYYY-MM-DD)", value=st.session_state.get("ec_fsl_inc_date", ""))
+                    report_dispatch_date = st.text_input("Report Dispatch Date (YYYY-MM-DD)", value=st.session_state.get("ec_fsl_rec_date", ""))
+                    evidence_type = st.text_input("Evidence Type", value=st.session_state.get("ec_fsl_evidence", ""))
+                    lab_division = st.text_input("Lab Division", value=st.session_state.get("ec_fsl_division", ""))
+
+            # Section 4: Prosecution Chargesheet
+            with st.expander("4. Prosecution Chargesheet", expanded=False):
+                p_c1, p_c2 = st.columns(2)
+                with p_c1:
+                    prosecution_file_no = st.text_input("Prosecution File No", value=st.session_state.get("ec_pros_no", ""))
+                    victim_name = st.text_input("Victim Name", value=st.session_state.get("ec_pros_name", ""))
+                    parent_spouse_name = st.text_input("Parent or Spouse Name", value=st.session_state.get("ec_pros_guardian", ""))
+                    pros_age = st.text_input("Victim Age", value=st.session_state.get("ec_pros_age", ""))
+                    address = st.text_input("Victim Address", value=st.session_state.get("ec_pros_address", ""))
+                with p_c2:
+                    pros_district = st.text_input("Prosecution District", value=st.session_state.get("ec_pros_district", ""))
+                    pros_inc_date = st.text_input("Incident Date (YYYY-MM-DD)", value=st.session_state.get("ec_pros_inc_date", ""), key="pros_incident_date")
+                    chargesheet_date = st.text_input("Chargesheet Filing Date (YYYY-MM-DD)", value=st.session_state.get("ec_pros_rec_date", ""))
+                    case_category = st.text_input("Case Category", value=st.session_state.get("ec_pros_cat", ""))
+                    prosecutor_office = st.text_input("Prosecutor Office", value=st.session_state.get("ec_pros_off", ""))
+
+            # Section 5: District Court
+            with st.expander("5. District Court Verdict", expanded=False):
+                c_c1, c_c2 = st.columns(2)
+                with c_c1:
+                    cnr_number = st.text_input("CNR Number", value=st.session_state.get("ec_crt_no", ""))
+                    petitioner_victim = st.text_input("Petitioner / Victim Name", value=st.session_state.get("ec_crt_name", ""))
+                    court_guardian = st.text_input("Father or Husband Name", value=st.session_state.get("ec_crt_guardian", ""), key="court_father_or_husband")
+                    court_dob = st.text_input("DOB or Age", value=st.session_state.get("ec_crt_age", ""))
+                    residence_area = st.text_input("Residence Area", value=st.session_state.get("ec_crt_locality", ""))
+                with c_c2:
+                    court_district = st.text_input("Court District", value=st.session_state.get("ec_crt_district", ""))
+                    date_of_incident = st.text_input("Date of Incident", value=st.session_state.get("ec_crt_inc_date", ""))
+                    verdict_date = st.text_input("Verdict Date (YYYY-MM-DD)", value=st.session_state.get("ec_crt_rec_date", ""))
+                    case_status = st.text_input("Case Status / Outcome", value=st.session_state.get("ec_crt_status", ""))
+                    court_name = st.text_input("Court Name", value=st.session_state.get("ec_crt_court", ""))
+
+            btn_submit_case = st.form_submit_button("🔍 Analyze Case", type="primary", width="stretch")
+
+        if btn_submit_case:
+            payload = {}
+            if complainant_name or fir_number:
+                payload["police_fir"] = {
+                    "fir_number": fir_number, "complainant_name": complainant_name,
+                    "father_or_husband": father_or_husband, "age": age, "locality": locality,
+                    "district": district, "incident_date": incident_date, "fir_date": fir_date,
+                    "offense_category": offense_category, "police_station": police_station
+                }
+            if patient_name or mlc_number:
+                payload["hospital_mlc"] = {
+                    "mlc_number": mlc_number, "patient_name": patient_name,
+                    "guardian_name": guardian_name, "dob": dob, "residential_locality": residential_locality,
+                    "district": mlc_district, "incident_date": mlc_incident_date, "examination_date": examination_date,
+                    "injury_type": injury_type, "hospital_name": hospital_name
+                }
+            if subject_name or fsl_case_number:
+                payload["forensic_lab"] = {
+                    "fsl_case_number": fsl_case_number, "subject_name": subject_name,
+                    "guardian_name": fsl_guardian, "age": fsl_age, "district": fsl_district,
+                    "sample_receipt_date": sample_receipt_date, "report_dispatch_date": report_dispatch_date,
+                    "evidence_type": evidence_type, "lab_division": lab_division
+                }
+            if victim_name or prosecution_file_no:
+                payload["prosecutor"] = {
+                    "prosecution_file_no": prosecution_file_no, "victim_name": victim_name,
+                    "parent_spouse_name": parent_spouse_name, "age": pros_age, "address": address,
+                    "district": pros_district, "incident_date": pros_inc_date, "chargesheet_date": chargesheet_date,
+                    "case_category": case_category, "prosecutor_office": prosecutor_office
+                }
+            if petitioner_victim or cnr_number:
+                payload["court"] = {
+                    "cnr_number": cnr_number, "petitioner_victim": petitioner_victim,
+                    "father_or_husband": court_guardian, "dob": court_dob, "residence_area": residence_area,
+                    "district": court_district, "date_of_incident": date_of_incident, "verdict_date": verdict_date,
+                    "case_status": case_status, "court_name": court_name
+                }
+
+            if len(payload) < 2:
+                st.error("⚠️ Please fill in at least 2 institutional sections to evaluate case linkage.")
+            else:
+                with st.spinner("Evaluating cross-agency record linkage and reconstructing journey timeline..."):
+                    c_res = run_analyze_case(payload, token=st.session_state.get("token"))
+
+                if c_res.get("error"):
+                    st.error(f"⚠️ **Analysis Validation Error**: {c_res['error']}")
+                else:
+                    st.session_state["single_case_analysis_res"] = c_res
+                    st.session_state["active_dataset_id"] = "case"
+                    m_name = c_res.get("masked_survivor_name", "Anonymous")
+                    st.session_state["active_dataset_label"] = f"Single Case ({m_name})"
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis({
+                        "is_single_case": True,
+                        **c_res
+                    })
+                    st.session_state["active_analysis_result"] = c_res
+                    st.success("Case analyzed successfully. Active dashboard dataset updated.")
+
+        # Render Single Case Results
+        sc_res = st.session_state.get("single_case_analysis_res")
+        if sc_res:
+            st.markdown("---")
+            st.markdown("### 📋 Case Journey & Record Linkage Evaluation")
+            st.info(
+                "ℹ️ **Individual Case Scope**: This analysis evaluates pairwise linkage, evidence breakdown, and chronological timeline "
+                "for this single synthetic record only. Single-case entries do not calculate system-wide or district-wide attrition rates, "
+                "preventing statistically misleading extrapolations from insufficient sample sizes."
+            )
+
+            # Masked Survivor Name & Linkage Badge
+            m_name = sc_res.get("masked_survivor_name", "Anonymous")
+            overall_label = sc_res.get("overall_linkage_label", "same case")
+            l_method = sc_res.get("linkage_method", "Fellegi-Sunter Pairwise Scoring (case_simulator)")
+
+            badge_color = "#059669" if overall_label == "same case" else ("#B45309" if overall_label == "needs review" else "#DC2626")
+            st.markdown(f"""
+                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid {badge_color}; border-radius: 4px; padding: 14px 18px; margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                        <div>
+                            <div style="font-size: 0.78rem; text-transform: uppercase; color: #5F5F5F; font-weight: 700;">Survivor Identity (Server-Side Masked)</div>
+                            <div style="font-size: 1.25rem; font-weight: 700; color: #222222;">👤 {m_name}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <span style="background: {badge_color}; color: #FFFFFF; padding: 4px 10px; border-radius: 3px; font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">
+                                {overall_label}
+                            </span>
+                            <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 4px;">Linkage: {l_method}</div>
+                        </div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # Bottleneck / Stall Point Callout
+            t_info = sc_res.get("timeline", {})
+            stalled_at = t_info.get("stalled_at")
+            missing_rec = t_info.get("missing_record_from")
+
+            if stalled_at and missing_rec:
+                st.warning(f"⚠️ **Case Stalled at {stalled_at}**: Missing expected record from **{missing_rec}**.")
+            elif t_info.get("all_milestones_reached"):
+                st.success("✅ **Complete Institutional Trajectory**: Case successfully advanced across all 5 institutional milestones.")
+
+            longest = t_info.get("longest_transition")
+            if longest:
+                st.info(
+                    f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
+                    f"**{longest.get('duration_days')} days** (baseline: {longest.get('baseline_days')} days, "
+                    f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+                )
+
+            # Timeline Stages Display
+            t_stages = t_info.get("stages", [])
+            if t_stages:
+                st.markdown("#### ⏱️ Institutional Journey Milestones")
+                st_cols = st.columns(len(t_stages))
+                for idx, sc_item in enumerate(t_stages):
+                    with st_cols[idx]:
+                        is_p = sc_item.get("present")
+                        st_bg = "#FFFFFF" if is_p else "#F9F9F9"
+                        st_border = "#8B1E3F" if is_p else "#CBD5E1"
+                        st.markdown(f"""
+                            <div style="background: {st_bg}; border: 1px solid {st_border}; border-top: 3px solid {st_border}; border-radius: 4px; padding: 10px 12px; min-height: 110px;">
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #222222;">{sc_item.get('stage_name')}</div>
+                                <div style="font-size: 0.82rem; color: {'#059669' if is_p else '#94A3B8'}; font-weight: 600; margin-top: 4px;">
+                                    {'✓ Reached' if is_p else '✗ Missing'}
+                                </div>
+                                <div style="font-size: 0.75rem; color: #5F5F5F; margin-top: 2px;">{sc_item.get('date') or 'No date'}</div>
+                                {f'<div style="font-size: 0.72rem; color: #B45309; font-weight: 600; margin-top: 4px;">+{sc_item.get("duration_days_from_prev")}d</div>' if sc_item.get("duration_days_from_prev") is not None else ''}
+                            </div>
+                        """, unsafe_allow_html=True)
+
+            # Match Score Table
+            pair_scores = sc_res.get("pairwise_match_scores", [])
+            if pair_scores:
+                st.markdown("#### 🔗 Pairwise Linkage Probabilities & Log-Odds Evidence")
+                p_rows = []
+                for p in pair_scores:
+                    lbl = p.get("label", "needs review")
+                    lbl_badge = "🟢 Same Case" if lbl == "same case" else ("🟡 Needs Review" if lbl == "needs review" else "🔴 Different Case")
+                    ev_summary = "; ".join([e.get("detail", "") for e in p.get("evidence", []) if e.get("status") in ["AGREE", "DISAGREE"]])
+                    p_rows.append({
+                        "Comparison Pair": f"{p.get('stage_a')} ↔ {p.get('stage_b')}",
+                        "Match Probability": f"{p.get('match_probability', 0.0):.3f}",
+                        "Match Weight (Log-Odds)": f"{p.get('match_weight', 0.0):.2f}",
+                        "Evaluation Decision": lbl_badge,
+                        "Key Evidence": ev_summary[:120] + "..." if len(ev_summary) > 120 else ev_summary
+                    })
+                st.dataframe(pd.DataFrame(p_rows), width="stretch", hide_index=True)
+
+    # -------------------------------------------------------------------------
+    # TAB 2: Upload CSVs
+    # -------------------------------------------------------------------------
+    with tab_upload:
+        st.markdown("""
+            <div style="margin-bottom: 14px;">
+                <div style="font-size: 1.05rem; font-weight: 700; color: #222222;">Batch CSV Upload</div>
+                <div style="font-size: 0.85rem; color: #5F5F5F;">
+                    Upload the 5 institutional CSV files matching real agency schemas (max 2000 cases and 5 MB per file).
+                    Processing runs in volatile memory with zero microdata disk persistence.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        # Template download button
+        tmpl_bytes = get_analyze_template(token=st.session_state.get("token"))
+        if tmpl_bytes:
+            st.download_button(
+                label="📥 Download CSV Templates (.zip)",
+                data=tmpl_bytes,
+                file_name="caselens_csv_templates.zip",
+                mime="application/zip",
+                key="btn_download_csv_templates",
+                help="Download zip containing header-only CSV templates for all 5 agencies."
+            )
+
+        with st.expander("📋 View Expected CSV Headers & Supported Column Aliases", expanded=False):
+            st.markdown("""
+                Each uploaded CSV must include the agency's required fields. Common column aliases (such as `name` for `complainant_name` or `father_name` for `father_or_husband`) are automatically mapped.
+                
+                * **1. Police FIR (`police_fir.csv`)**: `fir_number`, `complainant_name` *(or name, victim_name)*, `father_or_husband` *(or guardian_name, father_name)*, `age`, `locality` *(or address)*, `district`, `incident_date`, `fir_date`, `offense_category`, `police_station` *(or station, ps)*
+                * **2. Hospital MLC (`hospital_mlc.csv`)**: `mlc_number`, `patient_name` *(or name)*, `guardian_name` *(or father_or_husband)*, `dob`, `residential_locality` *(or address, locality)*, `district`, `incident_date`, `examination_date`, `injury_type`, `hospital_name`
+                * **3. Forensic Lab (`forensic_lab.csv`)**: `fsl_case_number`, `subject_name` *(or name)*, `guardian_name`, `age`, `district`, `sample_receipt_date`, `report_dispatch_date`, `evidence_type`, `lab_division`
+                * **4. Prosecution Chargesheet (`prosecutor.csv`)**: `prosecution_file_no`, `victim_name` *(or name)*, `parent_spouse_name` *(or guardian_name)*, `age`, `address` *(or locality)*, `district`, `incident_date`, `chargesheet_date`, `case_category`, `prosecutor_office`
+                * **5. District Court Verdict (`court.csv`)**: `cnr_number`, `petitioner_victim` *(or victim_name, name)*, `father_or_husband` *(or guardian_name)*, `dob`, `residence_area` *(or address)*, `district`, `date_of_incident` *(or incident_date)*, `verdict_date`, `case_status`, `court_name`
+            """)
+        st.markdown("<br/>", unsafe_allow_html=True)
+
+        up_col1, up_col2 = st.columns(2)
+        with up_col1:
+            u_fir = st.file_uploader("1. Police FIR CSV", type=["csv"], key="u_file_fir")
+            u_mlc = st.file_uploader("2. Hospital MLC CSV", type=["csv"], key="u_file_mlc")
+            u_fsl = st.file_uploader("3. Forensic Lab CSV", type=["csv"], key="u_file_fsl")
+        with up_col2:
+            u_pros = st.file_uploader("4. Prosecution Chargesheet CSV", type=["csv"], key="u_file_pros")
+            u_court = st.file_uploader("5. District Court Verdict CSV", type=["csv"], key="u_file_court")
+
+        btn_run_upload = st.button("🚀 Run Analysis on Uploaded CSVs", type="primary", key="btn_run_upload_analysis")
+
+        if btn_run_upload:
+            if not (u_fir and u_mlc and u_fsl and u_pros and u_court):
+                st.warning("⚠️ Please upload all 5 CSV files (Police FIR, Hospital MLC, Forensic Lab, Prosecution, Court) to run the analysis.")
+            else:
+                files_payload = {
+                    "police_fir": (u_fir.name, u_fir.getvalue(), "text/csv"),
+                    "hospital_mlc": (u_mlc.name, u_mlc.getvalue(), "text/csv"),
+                    "forensic_lab": (u_fsl.name, u_fsl.getvalue(), "text/csv"),
+                    "prosecutor": (u_pros.name, u_pros.getvalue(), "text/csv"),
+                    "court": (u_court.name, u_court.getvalue(), "text/csv")
+                }
+                with st.spinner("Validating schemas, performing in-memory record linkage, and computing funnel analytics..."):
+                    up_res = run_analyze_upload(files_payload, token=st.session_state.get("token"))
+
+                if up_res.get("error"):
+                    st.error(f"⚠️ **Upload Analysis Failed**: {up_res['error']}")
+                else:
+                    st.session_state["upload_analysis_res"] = up_res
+                    st.session_state["active_analysis_result"] = up_res
+                    total_c = up_res.get("summary_kpis", {}).get("total_cases") or up_res.get("funnel", {}).get("total_cases", 0)
+                    st.session_state["active_dataset_id"] = "uploaded"
+                    st.session_state["active_dataset_label"] = f"Uploaded CSVs ({total_c:,} cases)"
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(up_res)
+                    st.success("Analysis executed successfully. Active dashboard dataset updated.")
+
+        res_upload = st.session_state.get("upload_analysis_res")
+        if res_upload and not res_upload.get("error"):
+            st.markdown("---")
+            render_csv_analysis_results(res_upload, title_prefix="Uploaded Files")
+
+    # -------------------------------------------------------------------------
+    # TAB 3: Use sample files
+    # -------------------------------------------------------------------------
+    with tab_sample:
+        st.markdown("""
+            <div style="margin-bottom: 14px;">
+                <div style="font-size: 1.05rem; font-weight: 700; color: #222222;">One-Click Benchmark Sample Analysis</div>
+                <div style="font-size: 0.85rem; color: #5F5F5F;">
+                    Execute complete record linkage and journey reconstruction on the benchmark sample CSV files
+                    bundled with CaseLens in volatile memory without modifying precomputed baseline artifacts.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if st.button("🚀 Run Analysis on Sample Files", type="primary", key="btn_run_sample_analysis"):
+            with st.spinner("Executing record linkage and process mining on sample benchmark datasets..."):
+                smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
+
+            if smpl_res.get("error"):
+                st.error(f"⚠️ **Sample Analysis Failed**: {smpl_res['error']}")
+            else:
+                st.session_state["sample_analysis_res"] = smpl_res
+                st.session_state["active_analysis_result"] = smpl_res
+                total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
+                st.session_state["active_dataset_id"] = "sample"
+                st.session_state["active_dataset_label"] = f"Benchmark Sample Dataset ({total_c:,} cases)"
+                st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(smpl_res)
+                st.success("Sample analysis completed successfully. Active dashboard dataset updated.")
+
+        res_sample = st.session_state.get("sample_analysis_res")
+        if res_sample and not res_sample.get("error"):
+            st.markdown("---")
+            render_csv_analysis_results(res_sample, title_prefix="Sample Benchmark Files")
+
+
+# ==============================================================================
 # PAGE 1: 📊 Executive Overview
 # ==============================================================================
 
-if PAGE == "📊 Executive Overview":
-    st.markdown("""
+elif PAGE == "📊 Executive Overview":
+    leak_badge_html = (
+        f'<span class="badge badge-critical">{KPIS["leak_count_display"]} Policy Leaks Flagged</span>'
+        if KPIS.get("leak_count_display") not in [NA, "0"]
+        else '<span class="badge badge-normal">0 Policy Leaks Flagged</span>'
+    )
+    st.markdown(f"""
         <div class="hero-banner">
             <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px;">
                 <div>
@@ -1002,7 +1823,7 @@ if PAGE == "📊 Executive Overview":
                     <span class="badge badge-normal">UN SDG 16</span>
                     <span class="badge badge-privacy">ε-DP Laplace Protected</span>
                     <span class="badge badge-normal">Zero-PII Verified</span>
-                    <span class="badge badge-critical">15 Policy Leaks Flagged</span>
+                    {leak_badge_html}
                 </div>
             </div>
             <div class="hero-title">Executive Policy Overview: Violence-Against-Women Case Attrition</div>
@@ -1014,6 +1835,80 @@ if PAGE == "📊 Executive Overview":
     """, unsafe_allow_html=True)
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    # Single-case view: Display case-specific results and explain aggregate dataset requirement
+    if st.session_state.get("active_dataset_id") == "case":
+        sc_res = st.session_state.get("single_case_analysis_res") or {}
+        m_name = sc_res.get("masked_survivor_name", "Anonymous")
+        overall_lbl = sc_res.get("overall_linkage_label", "same case")
+        l_meth = sc_res.get("linkage_method", "Fellegi-Sunter")
+        t_info = sc_res.get("timeline", {})
+        stages = t_info.get("stages", [])
+        reached_count = sum(1 for s in stages if s.get("present"))
+        longest = t_info.get("longest_transition")
+        stalled_at = t_info.get("stalled_at")
+        missing_rec = t_info.get("missing_record_from")
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Survivor Identity</div>
+                    <div class="metric-value" style="font-size: 1.3rem;">👤 {m_name}</div>
+                    <div class="metric-delta">Server-Side Masked</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with c2:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Milestones Reached</div>
+                    <div class="metric-value">{reached_count} / 5</div>
+                    <div class="metric-delta">{"All 5 Reached" if reached_count == 5 else f"Stalled at {stalled_at or 'Pipeline'}"}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with c3:
+            badge_col = "#059669" if overall_lbl == "same case" else ("#B45309" if overall_lbl == "needs review" else "#DC2626")
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Linkage Determination</div>
+                    <div class="metric-value" style="color: {badge_col}; font-size: 1.3rem;">{overall_lbl.upper()}</div>
+                    <div class="metric-delta">{l_meth}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with c4:
+            l_dur = f"{longest.get('duration_days')}d" if longest else "N/A"
+            l_pair = longest.get('pair', 'None') if longest else "No delays"
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Longest Transition</div>
+                    <div class="metric-value">{l_dur}</div>
+                    <div class="metric-delta">{l_pair}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("<br/>", unsafe_allow_html=True)
+        st.info(
+            "ℹ️ **Single-Case Scope**: You are currently viewing case-specific results for an individual case record. "
+            "District vulnerability rankings, population-level leak distributions, and multi-agency aggregate benchmarks "
+            "require a multi-case dataset. To analyze cohort statistics, upload CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+
+        if stalled_at and missing_rec:
+            st.warning(f"⚠️ **Case Stalled at {stalled_at}**: Missing expected record from **{missing_rec}**.")
+        elif t_info.get("all_milestones_reached"):
+            st.success("✅ **Complete Institutional Trajectory**: Case successfully advanced across all 5 institutional milestones.")
+
+        if longest:
+            st.info(
+                f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
+                f"**{longest.get('duration_days')} days** (statutory baseline: {longest.get('baseline_days')} days, "
+                f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+            )
+        st.stop()
 
     summary_data = DATA.get("summary", {})
     if summary_data.get("too_few_cases"):
@@ -1062,31 +1957,74 @@ if PAGE == "📊 Executive Overview":
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
-    # Key Empirical Findings (Slide 5 signals)
+    # Key Empirical Findings (Dynamic signals calculated from active dataset)
     st.markdown("### 🎯 Key Systemic Attrition Findings")
+
+    # Signal 1: Transition Latency / Primary Bottleneck
+    bottlenecks_data = DATA.get("bottlenecks", {})
+    trans_list = bottlenecks_data.get("inter_stage_transitions", [])
+    max_trans = max(trans_list, key=lambda t: t.get("median_duration_days", 0), default={}) if trans_list else {}
+    if max_trans and max_trans.get("median_duration_days"):
+        sig1_title = f"Primary Latency Bottleneck ({max_trans.get('transition', 'Stage')})"
+        sig1_val = f"{max_trans.get('median_duration_days', 0):.1f} Days"
+        sig1_sub = f"P90: {max_trans.get('p90_duration_days', 0):.1f}d | Statutory: {max_trans.get('statutory_benchmark_days', 60)}d"
+    else:
+        sig1_title = "Primary Latency Bottleneck"
+        sig1_val = "Baseline"
+        sig1_sub = "No critical delay spike detected"
+
+    # Signal 2: Top Attrition / Leak Point
+    leaks_list = summary_data.get("systemic_leak_points_detected", [])
+    if leaks_list:
+        top_leak = leaks_list[0]
+        sig2_title = f"Top Policy Leak ({top_leak.get('leak_code', 'LP-01')})"
+        sig2_val = f"{top_leak.get('title', 'Leak Detected')[:26]}"
+        sig2_sub = f"{top_leak.get('district', 'Statewide')} • {top_leak.get('agency', 'Agency')}"
+    else:
+        sig2_title = "Systemic Policy Leaks"
+        sig2_val = "Zero Flagged"
+        sig2_sub = "No statutory violations detected"
+
+    # Signal 3: Record Linkage Evaluation
+    eval_info = DATA.get("evaluation", {})
+    pw_m = eval_info.get("pairwise_metrics", {})
+    cl_m = eval_info.get("cluster_metrics", {})
+    l_method = eval_info.get("linkage_method", "Record Linkage")
+    l_short = "Fellegi-Sunter" if "Fellegi" in l_method else ("Splink" if "Splink" in l_method else l_method)
+    rec_val = pw_m.get("at_threshold", {}).get("recall") or pw_m.get("recall")
+    f1_val = cl_m.get("bcubed_f1")
+    if rec_val is not None and f1_val is not None:
+        sig3_title = f"Linkage Quality ({l_short})"
+        sig3_val = f"{rec_val * 100:.1f}% / {f1_val * 100:.1f}%"
+        sig3_sub = "Pairwise Recall / B-Cubed F1"
+    else:
+        sig3_title = f"Linkage Quality ({l_short})"
+        sig3_val = "Validated"
+        sig3_sub = "Multi-institutional trajectory linkage"
+
     sig1, sig2, sig3 = st.columns(3)
     with sig1:
-        st.markdown("""
+        st.markdown(f"""
             <div class="metric-card" style="border-left: 3px solid #B45309;">
-                <div class="metric-label">Forensic Latency Spike (District 3)</div>
-                <div class="metric-value" style="color: #B45309;">≈ 3.2× Delay</div>
-                <div class="metric-delta">137.5d vs 43.0d baseline (201 cases)</div>
+                <div class="metric-label">{sig1_title}</div>
+                <div class="metric-value" style="color: #B45309;">{sig1_val}</div>
+                <div class="metric-delta">{sig1_sub}</div>
             </div>
         """, unsafe_allow_html=True)
     with sig2:
-        st.markdown("""
+        st.markdown(f"""
             <div class="metric-card" style="border-left: 3px solid #B45309;">
-                <div class="metric-label">Chargesheet Drop-Off (District 6)</div>
-                <div class="metric-value" style="color: #B45309;">72.2% Leak</div>
-                <div class="metric-delta">Only 27.8% reach court (vs 59.0% state avg)</div>
+                <div class="metric-label">{sig2_title}</div>
+                <div class="metric-value" style="color: #B45309;">{sig2_val}</div>
+                <div class="metric-delta">{sig2_sub}</div>
             </div>
         """, unsafe_allow_html=True)
     with sig3:
-        st.markdown("""
+        st.markdown(f"""
             <div class="metric-card" style="border-left: 3px solid #8B1E3F;">
-                <div class="metric-label">Record Linkage Benchmark (Splink)</div>
-                <div class="metric-value" style="color: #8B1E3F;">88.5% / 92.9%</div>
-                <div class="metric-delta">Recall / B-Cubed F1 on synthetic data</div>
+                <div class="metric-label">{sig3_title}</div>
+                <div class="metric-value" style="color: #8B1E3F;">{sig3_val}</div>
+                <div class="metric-delta">{sig3_sub}</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1118,27 +2056,32 @@ if PAGE == "📊 Executive Overview":
             fig_rank.update_layout(get_plot_layout(), yaxis=dict(autorange="reversed"))
             fig_rank.update_traces(texttemplate='%{text:.1f}', textposition='outside')
             st.plotly_chart(fig_rank, width="stretch")
+        else:
+            st.info("No district vulnerability breakdown available for this active cohort.")
 
     with col_right:
         st.markdown("### 🔍 Systemic Policy Leak Points Detected")
         leak_points = summary_data.get("systemic_leak_points_detected", [])
-        for lp in leak_points:
-            dist = lp.get("district")
-            code = lp.get("leak_code")
-            title = lp.get("title")
-            badge_html = f'<span class="badge badge-critical">{code}</span>'
-            detail_text = format_leak_detail(lp)
+        if leak_points:
+            for lp in leak_points:
+                dist = lp.get("district")
+                code = lp.get("leak_code")
+                title = lp.get("title")
+                badge_html = f'<span class="badge badge-critical">{code}</span>'
+                detail_text = format_leak_detail(lp)
 
-            st.markdown(f"""
-                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #B45309; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-                        <strong style="color: #222222; font-size: 1.0rem;">{dist}</strong>
-                        {badge_html}
+                st.markdown(f"""
+                    <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #B45309; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                            <strong style="color: #222222; font-size: 1.0rem;">{dist}</strong>
+                            {badge_html}
+                        </div>
+                        <div style="color: #222222; font-size: 0.88rem; margin-bottom: 4px;">{title}</div>
+                        <div style="color: #5F5F5F; font-size: 0.82rem;">{detail_text}</div>
                     </div>
-                    <div style="color: #222222; font-size: 0.88rem; margin-bottom: 4px;">{title}</div>
-                    <div style="color: #5F5F5F; font-size: 0.82rem;">{detail_text}</div>
-                </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
+        else:
+            st.info("No systemic policy leak points detected in this active cohort.")
 
 
 # ==============================================================================
@@ -1157,6 +2100,42 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
     """, unsafe_allow_html=True)
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        sc_res = st.session_state.get("single_case_analysis_res") or {}
+        t_info = sc_res.get("timeline", {})
+        t_stages = t_info.get("stages", [])
+
+        st.info(
+            "ℹ️ **Single-Case Trajectory**: Displaying milestone progression for the active case. "
+            "Aggregate funnel attrition rates, Differential Privacy Laplace error bars, and small-cell k-anonymity suppression "
+            "require a multi-case cohort. To view statistical attrition funnels, upload multi-agency CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+
+        if t_stages:
+            st.markdown("### ⏱️ Individual Journey Milestones")
+            st_cols = st.columns(len(t_stages))
+            for idx, sc_item in enumerate(t_stages):
+                with st_cols[idx]:
+                    is_p = sc_item.get("present")
+                    st_bg = "#FFFFFF" if is_p else "#F9F9F9"
+                    st_border = "#8B1E3F" if is_p else "#CBD5E1"
+                    dur_disp = f"+{sc_item.get('duration_days_from_prev')}d" if sc_item.get("duration_days_from_prev") is not None else ""
+                    st.markdown(f"""
+                        <div style="background: {st_bg}; border: 1px solid {st_border}; border-top: 3px solid {st_border}; border-radius: 4px; padding: 12px; min-height: 120px;">
+                            <div style="font-size: 0.75rem; font-weight: 700; color: #222222;">{sc_item.get('stage_name')}</div>
+                            <div style="font-size: 0.85rem; color: {'#059669' if is_p else '#94A3B8'}; font-weight: 600; margin-top: 6px;">
+                                {'✓ Reached' if is_p else '✗ Missing'}
+                            </div>
+                            <div style="font-size: 0.75rem; color: #5F5F5F; margin-top: 4px;">{sc_item.get('date') or 'No record'}</div>
+                            <div style="font-size: 0.72rem; color: #B45309; font-weight: 600; margin-top: 4px;">{dur_disp}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+        st.stop()
 
     dp_funnel = DATA.get("dp_funnel", {})
     if dp_funnel.get("too_few_cases"):
@@ -1268,6 +2247,52 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        sc_res = st.session_state.get("single_case_analysis_res") or {}
+        t_info = sc_res.get("timeline", {})
+        stalled_at = t_info.get("stalled_at")
+        missing_rec = t_info.get("missing_record_from")
+        longest = t_info.get("longest_transition")
+
+        st.info(
+            "ℹ️ **Single-Case Durations**: Showing measured transition durations for this individual case. "
+            "Cohort latency distributions, non-parametric percentiles (P50, P90, P95), and interquartile ranges require a multi-case dataset. "
+            "To inspect population-wide duration bottlenecks, upload CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+
+        if stalled_at and missing_rec:
+            st.warning(f"⚠️ **Case Stalled at {stalled_at}**: Missing expected record from **{missing_rec}**.")
+        elif t_info.get("all_milestones_reached"):
+            st.success("✅ **Complete Institutional Trajectory**: Case successfully advanced across all 5 institutional milestones.")
+
+        if longest:
+            st.info(
+                f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
+                f"**{longest.get('duration_days')} days** (statutory baseline: {longest.get('baseline_days')} days, "
+                f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+            )
+
+        trans_list = DATA.get("bottlenecks", {}).get("inter_stage_transitions", [])
+        if trans_list:
+            st.markdown("### ⏱️ Measured Stage Transitions")
+            cols = st.columns(len(trans_list))
+            for idx, tr in enumerate(trans_list):
+                with cols[idx]:
+                    dur = tr.get("duration_days")
+                    dur_str = f"{dur:.1f} days" if isinstance(dur, (int, float)) else "N/A"
+                    st.markdown(f"""
+                        <div class="metric-card">
+                            <div class="metric-label">{tr.get('transition', 'Transition')}</div>
+                            <div class="metric-value">{dur_str}</div>
+                            <div class="metric-delta">Statutory: {tr.get('statutory_benchmark_days', 60)}d</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+        st.stop()
+
     bottlenecks = DATA.get("bottlenecks", {})
     if bottlenecks.get("too_few_cases"):
         render_too_few_cases_warning()
@@ -1287,12 +2312,12 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
         trans_data = bottlenecks.get(trans_key, {})
         col = [col1, col2, col3, col4][idx]
         with col:
-            med = trans_data.get("median_days", 0.0)
-            p95 = trans_data.get("p95_days", 0.0)
-            sample = trans_data.get("sample_count", 0)
-            med_str = f"{med:.1f}" if isinstance(med, (int, float)) else str(med)
-            p95_str = f"{p95:.1f}" if isinstance(p95, (int, float)) else str(p95)
-            sample_str = f"{sample:,}" if isinstance(sample, int) else str(sample)
+            med = trans_data.get("median_days")
+            p95 = trans_data.get("p95_days")
+            sample = trans_data.get("sample_count")
+            med_str = f"{med:.1f}" if isinstance(med, (int, float)) else NA
+            p95_str = f"{p95:.1f}" if isinstance(p95, (int, float)) else NA
+            sample_str = f"{sample:,}" if isinstance(sample, int) else NA
             st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">{label}</div>
@@ -1328,31 +2353,36 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
             st.plotly_chart(fig_buckets, width="stretch")
 
     with b_right:
-        s_cnt = selected_data.get('sample_count', 0)
-        s_cnt_disp = f"{s_cnt:,}" if isinstance(s_cnt, int) else str(s_cnt)
-        mean_d = selected_data.get('mean_days', 0.0)
-        mean_disp = f"{mean_d:.1f}" if isinstance(mean_d, (int, float)) else str(mean_d)
-        std_d = selected_data.get('std_days', 0.0)
-        std_disp = f"{std_d:.1f}" if isinstance(std_d, (int, float)) else str(std_d)
-        med_d = selected_data.get('median_days', 0.0)
-        med_disp = f"{med_d:.1f}" if isinstance(med_d, (int, float)) else str(med_d)
-        iqr_d = selected_data.get('iqr_days', 0.0)
-        iqr_disp = f"{iqr_d:.1f}" if isinstance(iqr_d, (int, float)) else str(iqr_d)
-        p90_d = selected_data.get('p90_days', 0.0)
-        p90_disp = f"{p90_d:.1f}" if isinstance(p90_d, (int, float)) else str(p90_d)
-        p95_d = selected_data.get('p95_days', 0.0)
-        p95_disp = f"{p95_d:.1f}" if isinstance(p95_d, (int, float)) else str(p95_d)
+        s_cnt = selected_data.get('sample_count')
+        s_cnt_disp = f"{s_cnt:,}" if isinstance(s_cnt, int) else NA
+        mean_d = selected_data.get('mean_days')
+        mean_disp = f"{mean_d:.1f}" if isinstance(mean_d, (int, float)) else NA
+        std_d = selected_data.get('std_days')
+        std_disp = f"{std_d:.1f}" if isinstance(std_d, (int, float)) else NA
+        med_d = selected_data.get('median_days')
+        med_disp = f"{med_d:.1f}" if isinstance(med_d, (int, float)) else NA
+        iqr_d = selected_data.get('iqr_days')
+        iqr_disp = f"{iqr_d:.1f}" if isinstance(iqr_d, (int, float)) else NA
+        p90_d = selected_data.get('p90_days')
+        p90_disp = f"{p90_d:.1f}" if isinstance(p90_d, (int, float)) else NA
+        p95_d = selected_data.get('p95_days')
+        p95_disp = f"{p95_d:.1f}" if isinstance(p95_d, (int, float)) else NA
+        p25_d = selected_data.get('p25_days')
+        p25_disp = f"{p25_d:.1f}d" if isinstance(p25_d, (int, float)) else NA
+        p75_d = selected_data.get('p75_days')
+        p75_disp = f"{p75_d:.1f}d" if isinstance(p75_d, (int, float)) else NA
+        stat_comp = statutory_compliance_label(selected_data.get('statutory_compliance'))
         st.markdown("### 📊 Non-Parametric Latency Percentiles")
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 16px; color: #222222;">
                 <p><strong>Sample Size:</strong> {s_cnt_disp} cases</p>
                 <p><strong>Mean Duration:</strong> {mean_disp} ± {std_disp} days</p>
                 <p><strong>Median (P50):</strong> {med_disp} days</p>
-                <p><strong>Interquartile Range (IQR):</strong> {iqr_disp} days (P25: {selected_data.get('p25_days', 0.0)}d - P75: {selected_data.get('p75_days', 0.0)}d)</p>
+                <p><strong>Interquartile Range (IQR):</strong> {iqr_disp} days (P25: {p25_disp} - P75: {p75_disp})</p>
                 <p><strong>Severe Delay (P90):</strong> {p90_disp} days</p>
                 <p><strong>Extreme Outlier (P95):</strong> {p95_disp} days</p>
                 <hr style="border-color: #E3DED6; margin: 10px 0;"/>
-                <p style="color: #8B1E3F; font-weight: 500;"><strong>Statutory Mandate Compliance:</strong> {selected_data.get('statutory_compliance', {}).get('within_60_days_pct', 0.0)}% within 60 days</p>
+                <p style="color: #8B1E3F; font-weight: 500;"><strong>Statutory Mandate Compliance:</strong> {stat_comp}</p>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1374,6 +2404,57 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        sc_res = st.session_state.get("single_case_analysis_res") or {}
+        pair_scores = sc_res.get("pairwise_match_scores", [])
+        overall_label = sc_res.get("overall_linkage_label", "same case")
+        l_method = sc_res.get("linkage_method", "Fellegi-Sunter Pairwise Scoring")
+
+        st.info(
+            "ℹ️ **Single-Case Linkage Diagnostics**: Displaying pairwise match probabilities and log-odds evidence for the active case. "
+            "Global precision-recall curves, candidate search space statistics, and clustering B-Cubed metrics require a multi-case dataset. "
+            "To evaluate model performance across a cohort, upload CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+
+        badge_color = "#059669" if overall_label == "same case" else ("#B45309" if overall_label == "needs review" else "#DC2626")
+        st.markdown(f"""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid {badge_color}; border-radius: 4px; padding: 14px 18px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
+                    <div>
+                        <div style="font-size: 0.78rem; text-transform: uppercase; color: #5F5F5F; font-weight: 700;">Overall Linkage Determination</div>
+                        <div style="font-size: 1.25rem; font-weight: 700; color: #222222;">{overall_label.upper()}</div>
+                    </div>
+                    <div style="text-align: right;">
+                        <span style="background: {badge_color}; color: #FFFFFF; padding: 4px 10px; border-radius: 3px; font-weight: 600; text-transform: uppercase; font-size: 0.85rem;">
+                            {overall_label}
+                        </span>
+                        <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 4px;">Method: {l_method}</div>
+                    </div>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if pair_scores:
+            st.markdown("### 🔗 Pairwise Linkage Probabilities & Log-Odds Evidence")
+            p_rows = []
+            for p in pair_scores:
+                lbl = p.get("label", "needs review")
+                lbl_badge = "🟢 Same Case" if lbl == "same case" else ("🟡 Needs Review" if lbl == "needs review" else "🔴 Different Case")
+                ev_summary = "; ".join([e.get("detail", "") for e in p.get("evidence", []) if e.get("status") in ["AGREE", "DISAGREE"]])
+                p_rows.append({
+                    "Comparison Pair": f"{p.get('stage_a')} ↔ {p.get('stage_b')}",
+                    "Match Probability": f"{p.get('match_probability', 0.0):.3f}",
+                    "Match Weight (Log-Odds)": f"{p.get('match_weight', 0.0):.2f}",
+                    "Evaluation Decision": lbl_badge,
+                    "Key Evidence": ev_summary[:120] + "..." if len(ev_summary) > 120 else ev_summary
+                })
+            st.dataframe(pd.DataFrame(p_rows), width="stretch", hide_index=True)
+        st.stop()
+
     eval_data = DATA.get("evaluation", {})
     if eval_data.get("too_few_cases"):
         render_too_few_cases_warning()
@@ -1388,7 +2469,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">B-Cubed F1 Score</div>
-                <div class="metric-value">{cluster.get('bcubed_f1', 0.9288):.3f}</div>
+                <div class="metric-value">{KPIS['bcubed_f1_display']}</div>
                 <div class="metric-delta">Cluster-Level Accuracy</div>
             </div>
         """, unsafe_allow_html=True)
@@ -1397,7 +2478,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Macro Entity Purity</div>
-                <div class="metric-value">{cluster.get('macro_purity', 0.972):.1%}</div>
+                <div class="metric-value">{KPIS['macro_purity_display']}</div>
                 <div class="metric-delta">Near-Zero Cross-Contamination</div>
             </div>
         """, unsafe_allow_html=True)
@@ -1406,8 +2487,8 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Pairwise Recall</div>
-                <div class="metric-value">{pairwise.get('metrics_at_default_threshold', {}).get('recall', 0.8846):.1%}</div>
-                <div class="metric-delta">At Optimal Threshold 0.85</div>
+                <div class="metric-value">{KPIS['pairwise_recall_display']}</div>
+                <div class="metric-delta">At Optimal Threshold</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1415,7 +2496,7 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Candidate Search Space</div>
-                <div class="metric-value">{pairwise.get('total_candidate_pairs', 706105):,}</div>
+                <div class="metric-value">{KPIS['candidate_pairs_display']}</div>
                 <div class="metric-delta">Blocked Pair Comparisons</div>
             </div>
         """, unsafe_allow_html=True)
@@ -1436,21 +2517,26 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
             labels={"recall": "Recall (True Positive Rate)", "precision": "Precision (Positive Predictive Value)"}
         )
         fig_pr.update_traces(line_color="#8B1E3F", marker=dict(color="#8B1E3F"))
-        fig_pr.add_trace(go.Scatter(
-            x=[pairwise.get('metrics_at_default_threshold', {}).get('recall', 0.8846)],
-            y=[pairwise.get('metrics_at_default_threshold', {}).get('precision', 0.572)],
-            mode="markers+text",
-            marker=dict(color="#B45309", size=12, symbol="star"),
-            name="Optimal Threshold (0.85)",
-            text=["Selected Operational Threshold (0.85)"],
-            textposition="top right"
-        ))
+        opt_rec = pairwise.get('metrics_at_default_threshold', {}).get('recall')
+        opt_prec = pairwise.get('metrics_at_default_threshold', {}).get('precision')
+        if opt_rec is not None and opt_prec is not None:
+            fig_pr.add_trace(go.Scatter(
+                x=[opt_rec],
+                y=[opt_prec],
+                mode="markers+text",
+                marker=dict(color="#B45309", size=12, symbol="star"),
+                name="Optimal Threshold",
+                text=["Selected Operational Threshold"],
+                textposition="top right"
+            ))
         fig_pr.update_layout(get_plot_layout())
         st.plotly_chart(fig_pr, width="stretch")
 
-    # Threshold Diagnostic Trade-offs Table
-    st.markdown("### 🎚️ Threshold Trade-Off Analysis")
-    st.dataframe(pd.DataFrame(thresh_table), width="stretch")
+        # Threshold Diagnostic Trade-offs Table
+        st.markdown("### 🎚️ Threshold Trade-Off Analysis")
+        st.dataframe(pd.DataFrame(thresh_table), width="stretch")
+    else:
+        st.info("No probabilistic threshold trade-off table available for this custom dataset.")
 
 
 # ==============================================================================
@@ -1470,6 +2556,17 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        st.info(
+            "ℹ️ **Single-Case Scope**: Systemic before/after transformation metrics (siloed departmental metrics vs linked pipeline attrition) "
+            "require a multi-agency dataset. Upload CSVs or run benchmark sample analysis in Analyze Your Data to see comparative cohort transformations."
+        )
+        st.stop()
+
     before_after = DATA.get("before_after", {})
     if before_after.get("too_few_cases"):
         render_too_few_cases_warning()
@@ -1488,21 +2585,30 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
                     <li><strong>Departmental Blindness:</strong> Police, Hospitals, Forensic Labs, and Courts maintain disconnected databases with distinct survivor identifiers.</li>
                     <li><strong>False Self-Assessments:</strong>
                         <ul>
-                            <li>Police claim 90%+ crime disposal rate by closing cases before forensic receipt.</li>
-                            <li>Forensic Science Labs report high sample processing numbers without tracking court trial impact.</li>
+                            <li>Police claim high crime disposal rates by closing cases before forensic receipt.</li>
+                            <li>Forensic Science Labs report aggregate sample throughput without tracking court trial impact.</li>
                             <li>Judiciary attributes trial pendency solely to witness non-attendance.</li>
                         </ul>
                     </li>
-                    <li><strong>Hidden Vulnerabilities:</strong> District 3 forensic turnaround lag (137.5 days) and District 6 police drop-off (72.2%) are completely invisible to state policymakers.</li>
+                    <li><strong>Hidden Vulnerabilities:</strong> Inter-agency turnaround bottlenecks and drop-offs remain invisible without record linkage.</li>
                     <li><strong>Privacy Hazards:</strong> Ad-hoc sharing of raw survivor files leaks PII, compromising survivor safety.</li>
                 </ul>
             </div>
         """, unsafe_allow_html=True)
 
-    filtered_cases = before_after.get("filtered_case_count", 5125)
-    filtered_events = before_after.get("filtered_event_count", 14384)
-    cases_str = "<5" if str(filtered_cases) == "<5" else f"{filtered_cases:,}"
-    events_str = "<5" if str(filtered_events) == "<5" else f"{filtered_events:,}"
+    filtered_cases = before_after.get("filtered_case_count", KPIS.get("reconstructed_cases_display", NA))
+    filtered_events = before_after.get("filtered_event_count", KPIS.get("events_display", NA))
+    cases_str = "<5" if str(filtered_cases) == "<5" else (f"{filtered_cases:,}" if isinstance(filtered_cases, int) else str(filtered_cases))
+    events_str = "<5" if str(filtered_events) == "<5" else (f"{filtered_events:,}" if isinstance(filtered_events, int) else str(filtered_events))
+
+    detected_leaks = DATA.get("summary", {}).get("systemic_leak_points_detected", [])
+    if detected_leaks:
+        leak_bullets = "".join([
+            f"<li><strong>{lp.get('district', 'District')}:</strong> {lp.get('title', 'Leak point')} ({format_leak_detail(lp)})</li>"
+            for lp in detected_leaks
+        ])
+    else:
+        leak_bullets = "<li>No critical systemic policy leak points detected in this cohort.</li>"
 
     with c_after:
         st.markdown(f"""
@@ -1515,9 +2621,7 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
                     <li><strong>Unified Case Trajectories:</strong> {events_str} events stitched into {cases_str} complete case journeys across all 5 institutional stages.</li>
                     <li><strong>Pinpointed Systemic Leak Points:</strong>
                         <ul>
-                            <li><strong>Rudrapur (D3):</strong> Forensic turnaround delay (3.19x multiplier) isolated as primary root cause of chargesheet stalling.</li>
-                            <li><strong>Shivgarh (D6):</strong> FIR-to-Chargesheet attrition (72.2% drop-off) identified from failure to record Sec 164 survivor statements.</li>
-                            <li><strong>Anandpur (D7):</strong> Judicial trial delay (612.9 days) isolated to the post-chargesheet court adjudication phase.</li>
+                            {leak_bullets}
                         </ul>
                     </li>
                     <li><strong>Mathematical Survivor Confidentiality:</strong> Pure ε-Differential Privacy (Laplace mechanism) guarantees plausible deniability against differencing attacks.</li>
@@ -1534,30 +2638,7 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
     if comp_table:
         st.dataframe(pd.DataFrame(comp_table), width="stretch")
     else:
-        comp_data = {
-            "Analytical Dimension": [
-                "Forensic Turnaround Visibility",
-                "Police Attrition Attribution",
-                "Cross-Stage Latency Quantification",
-                "Survivor Re-identification Risk",
-                "Statutory Compliance Auditing"
-            ],
-            "Siloed Status Quo (Before)": [
-                "Unknown (Lab internal metric only)",
-                "Assumed victim uncooperativeness",
-                "Impossible (Stages disconnected)",
-                "High (Unsanitized file sharing)",
-                "Anecdotal / Reactive"
-            ],
-            "Privacy Pipeline (After)": [
-                "137.5 days median in D3 (3.19x normal)",
-                "72.2% attrition drop-off in D6 (LP-02)",
-                "Exact IQR & P95 durations calculated",
-                "Zero PII + Laplace DP Noise Mask",
-                "Automated statutory benchmark tracking"
-            ]
-        }
-        st.dataframe(pd.DataFrame(comp_data), width="stretch")
+        st.info("ℹ️ Longitudinal before/after comparative metrics require multi-year departmental baseline data. Showing linked pipeline metrics calculated from the current active dataset.")
 
 
 # ==============================================================================
@@ -1576,6 +2657,48 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
     """, unsafe_allow_html=True)
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        sc_res = st.session_state.get("single_case_analysis_res") or {}
+        m_name = sc_res.get("masked_survivor_name", "Anonymous")
+
+        st.info(
+            "ℹ️ **Single-Case Privacy Model**: Differential Privacy Laplace noise and small-cell k-anonymity suppression "
+            "are mathematical guarantees applied to aggregate queries over large datasets. For an individual case simulation, "
+            "confidentiality is guaranteed via one-way cryptographic pseudonymization and strictly zero persistent storage. "
+            "To evaluate aggregate differential privacy budgets and noise mechanisms, upload CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            st.markdown(f"""
+                <div class="metric-card">
+                    <div class="metric-label">Survivor Identity</div>
+                    <div class="metric-value" style="font-size: 1.3rem;">👤 {m_name}</div>
+                    <div class="metric-delta">SHA-256 One-Way Masked</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with p2:
+            st.markdown("""
+                <div class="metric-card">
+                    <div class="metric-label">Microdata Storage</div>
+                    <div class="metric-value" style="color: #059669;">0 Bytes</div>
+                    <div class="metric-delta">Volatile In-Memory Processing</div>
+                </div>
+            """, unsafe_allow_html=True)
+        with p3:
+            st.markdown("""
+                <div class="metric-card">
+                    <div class="metric-label">Audit Log Verification</div>
+                    <div class="metric-value" style="color: #059669;">Zero-PII</div>
+                    <div class="metric-delta">Action logged without input fields</div>
+                </div>
+            """, unsafe_allow_html=True)
+        st.stop()
 
     priv_audit = DATA.get("privacy_audit", {})
     budget_sum = priv_audit.get("privacy_budget_summary", {})
@@ -1602,7 +2725,7 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         """, unsafe_allow_html=True)
 
     with b2:
-        spent = budget_sum.get('spent_epsilon', 2.35)
+        spent = budget_sum.get('spent_epsilon', 0.0)
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Epsilon Budget Spent</div>
@@ -1612,7 +2735,8 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         """, unsafe_allow_html=True)
 
     with b3:
-        rem = budget_sum.get('remaining_epsilon', 7.65)
+        tot_eps = budget_sum.get('total_epsilon_allocated', 10.0)
+        rem = budget_sum.get('remaining_epsilon', max(tot_eps - spent, 0.0))
         st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Remaining Epsilon</div>
@@ -1622,11 +2746,12 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         """, unsafe_allow_html=True)
 
     with b4:
-        st.markdown("""
+        zero_pii_val = "100%" if KPIS.get("zero_pii_label") == "Pass" else ("0%" if KPIS.get("zero_pii_label") == "Fail" else NA)
+        st.markdown(f"""
             <div class="metric-card">
                 <div class="metric-label">Zero-PII Status</div>
-                <div class="metric-value">100%</div>
-                <div class="metric-delta">Verified: Zero Leaked Names/IDs</div>
+                <div class="metric-value">{zero_pii_val}</div>
+                <div class="metric-delta">{KPIS.get("zero_pii_delta", "Verified: Zero Leaked Names/IDs")}</div>
             </div>
         """, unsafe_allow_html=True)
 
@@ -1751,9 +2876,40 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
 
     render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
+    if not st.session_state.get("active_dataset_id"):
+        render_no_active_dataset_banner()
+        st.stop()
+
+    if st.session_state.get("active_dataset_id") == "case":
+        st.info(
+            "ℹ️ **Single-Case Statutory Alignment**: Showing legal mandates relevant to milestones in this case. "
+            "District-wide statutory policy leak analysis and automated government benchmark retrieval require a multi-agency dataset. "
+            "Upload CSVs or run benchmark sample analysis in Analyze Your Data."
+        )
+        st.markdown("### 🏛️ Applicable Statutory Benchmarks")
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #8B1E3F;">Police Investigation & Chargesheet Filing</div>
+                <div style="font-size: 0.88rem; color: #222222; margin-top: 4px;"><strong>Statutory Mandate:</strong> Section 173(2) CrPC / Section 193 BNSS requires investigation to be completed within 60 days in sexual offence cases.</div>
+            </div>
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #8B1E3F;">Medical Examination & Forensic Evidence</div>
+                <div style="font-size: 0.88rem; color: #222222; margin-top: 4px;"><strong>Statutory Mandate:</strong> Section 164A CrPC requires medical examination within 24 hours of receiving information.</div>
+            </div>
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px 16px; margin-bottom: 12px;">
+                <div style="font-weight: 700; color: #8B1E3F;">Judicial Trial Expediency</div>
+                <div style="font-size: 0.88rem; color: #222222; margin-top: 4px;"><strong>Statutory Mandate:</strong> POCSO Section 35(2) mandates trial to be completed, as far as possible, within a period of one year from taking cognizance.</div>
+            </div>
+        """, unsafe_allow_html=True)
+        st.stop()
+
     policy_cache = DATA.get("policy_context", {})
 
     st.markdown("### 🏛️ Top 5 Policy Leak Points & Statutory Grounding")
+
+    leak_items = [item for key, item in policy_cache.items() if key != "government_benchmark_fact"]
+    if not leak_items:
+        st.info("No policy leak point contexts mapped for the current run.")
 
     # Render each policy leak point
     for key, data in policy_cache.items():

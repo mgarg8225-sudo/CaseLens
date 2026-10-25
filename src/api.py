@@ -35,9 +35,18 @@ from urllib.parse import urlparse
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request, Response, status
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, Request, Response, status, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+
+from src.upload_analysis import (
+    generate_template_zip,
+    validate_csv_content,
+    analyze_uploaded_datasets,
+    analyze_single_case_input,
+    LINKAGE_METHOD_NAME,
+    DEFAULT_BASELINE_BOTTLENECKS,
+)
 
 from src.privacy import (
     PrivacyBudgetTracker,
@@ -185,6 +194,14 @@ class AuditLogEventRequest(BaseModel):
     user_id: Optional[str] = None
     role: Optional[str] = None
     details: Optional[Dict[str, Any]] = None
+
+
+class SingleCaseAnalysisRequest(BaseModel):
+    police_fir: Optional[Dict[str, Any]] = None
+    hospital_mlc: Optional[Dict[str, Any]] = None
+    forensic_lab: Optional[Dict[str, Any]] = None
+    prosecutor: Optional[Dict[str, Any]] = None
+    court: Optional[Dict[str, Any]] = None
 
 
 # ==============================================================================
@@ -465,7 +482,14 @@ ALLOWED_POLICY_KEYS = {
     "filtered_event_count",
     "fir_to_chargesheet_rate_pct",
     "attrition_drop_off_pct",
-    "comparative_table"
+    "comparative_table",
+    "masked_survivor_name",
+    "linkage_method",
+    "stage_a",
+    "stage_b",
+    "pair",
+    "name_l",
+    "name_r"
 }
 
 
@@ -587,7 +611,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 client_ip=client_ip,
                 epsilon_spent=getattr(request.state, "epsilon_spent", 0.0),
                 zero_pii_verified=True,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                details=getattr(request.state, "audit_details", {})
             )
             return response
         except Exception as exc:
@@ -1470,6 +1495,142 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             details=request_body.details or {}
         )
         return {"status": "recorded", "event_type": request_body.event_type}
+
+    # ==========================================================================
+    # Analyze Your Data Endpoints (Analyst and Admin Roles Only)
+    # ==========================================================================
+
+    @app.get("/api/v1/analyze/template", tags=["Analyze Your Data"])
+    def get_analyze_template(
+        request: Request,
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Returns a zip archive containing header-only CSV templates for the 5 agency tables.
+        Accessible exclusively to Institutional Analysts and Administrators (viewers receive 403).
+        """
+        zip_bytes = generate_template_zip()
+        request.state.audit_details = {"event": "download_template"}
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"Content-Disposition": 'attachment; filename="caselens_csv_templates.zip"'}
+        )
+
+    @app.post("/api/v1/analyze/sample", tags=["Analyze Your Data"])
+    def analyze_sample_data(
+        request: Request,
+        limit: int = Query(default=500, ge=10, le=2000),
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Runs the complete record linkage, journey reconstruction, and bottleneck analytics
+        on the existing sample CSV datasets in data/ without modifying any precomputed artifacts.
+        Accessible exclusively to Institutional Analysts and Administrators (viewers receive 403).
+        """
+        dfs = {}
+        for ag in ["police_fir", "hospital_mlc", "forensic_lab", "prosecutor", "court"]:
+            f_path = os.path.join(DATA_STORE.data_dir, f"{ag}.csv")
+            if os.path.exists(f_path):
+                try:
+                    df = pd.read_csv(f_path)
+                    if limit and len(df) > limit:
+                        df = df.head(limit)
+                    dfs[ag] = df
+                except Exception:
+                    pass
+
+        baseline = DATA_STORE.bottlenecks or DEFAULT_BASELINE_BOTTLENECKS
+        res = analyze_uploaded_datasets(dfs, baseline_bottlenecks=baseline)
+
+        total_rows = sum(len(df) for df in dfs.values())
+        total_cases = res.get("summary_kpis", {}).get("total_cases", 0)
+
+        request.state.audit_details = {"event": "analyze_sample", "total_records": total_rows, "total_cases": total_cases}
+        return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_sample")
+
+    @app.post("/api/v1/analyze/upload", tags=["Analyze Your Data"])
+    async def analyze_uploaded_csvs(
+        request: Request,
+        police_fir: UploadFile = File(...),
+        hospital_mlc: UploadFile = File(...),
+        forensic_lab: UploadFile = File(...),
+        prosecutor: UploadFile = File(...),
+        court: UploadFile = File(...),
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Accepts 5 agency CSV files, validates required columns, size limits, and row limits,
+        and executes in-memory record linkage, process mining, and bottleneck analytics.
+        Never persists microdata to disk.
+        Accessible exclusively to Institutional Analysts and Administrators (viewers receive 403).
+        """
+        uploads = {
+            "police_fir": police_fir,
+            "hospital_mlc": hospital_mlc,
+            "forensic_lab": forensic_lab,
+            "prosecutor": prosecutor,
+            "court": court
+        }
+
+        dfs = {}
+        total_rows = 0
+
+        validation_errors = []
+        for agency, up_file in uploads.items():
+            content = await up_file.read()
+            try:
+                df = validate_csv_content(agency, content, max_cases=2000, max_bytes=5 * 1024 * 1024)
+                dfs[agency] = df
+                total_rows += len(df)
+            except ValueError as val_err:
+                validation_errors.append(str(val_err))
+
+        if validation_errors:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="; ".join(validation_errors)
+            )
+
+        baseline = DATA_STORE.bottlenecks or DEFAULT_BASELINE_BOTTLENECKS
+        res = analyze_uploaded_datasets(dfs, baseline_bottlenecks=baseline)
+        total_cases = res.get("summary_kpis", {}).get("total_cases", 0)
+
+        request.state.audit_details = {"event": "analyze_upload", "total_records": total_rows, "total_cases": total_cases}
+        return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_upload")
+
+    @app.post("/api/v1/analyze/case", tags=["Analyze Your Data"])
+    def analyze_single_case(
+        request: Request,
+        case_data: SingleCaseAnalysisRequest,
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Analyzes a single case entered by hand across 5 optional agency sections.
+        Requires at least 2 sections, validates chronological sequence and dates,
+        computes pairwise match scores, identifies journey stall point, and masks survivor name.
+        Accessible exclusively to Institutional Analysts and Administrators (viewers receive 403).
+        """
+        sections = {
+            "police_fir": case_data.police_fir or {},
+            "hospital_mlc": case_data.hospital_mlc or {},
+            "forensic_lab": case_data.forensic_lab or {},
+            "prosecutor": case_data.prosecutor or {},
+            "court": case_data.court or {}
+        }
+
+        try:
+            baseline = DATA_STORE.bottlenecks or DEFAULT_BASELINE_BOTTLENECKS
+            res = analyze_single_case_input(sections, baseline_bottlenecks=baseline)
+        except ValueError as val_err:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(val_err)
+            )
+
+        present_sections = sum(1 for v in sections.values() if v and any(str(x).strip() for x in v.values() if x is not None))
+        request.state.audit_details = {"event": "analyze_case", "sections_count": present_sections}
+        return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_case")
 
     return app
 

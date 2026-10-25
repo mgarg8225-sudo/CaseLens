@@ -158,6 +158,7 @@ def _handle_response_status(resp: requests.Response) -> bool:
 
 ROLE_PERMISSIONS: Dict[str, List[str]] = {
     "viewer": [
+        "🔬 Analyze Your Data",
         "📊 Executive Overview",
         "🔻 Funnel with Uncertainty Ranges",
         "⏱️ Duration Bottlenecks & Latency",
@@ -166,6 +167,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🔍 Case Explorer"
     ],
     "analyst": [
+        "🔬 Analyze Your Data",
         "📊 Executive Overview",
         "🔻 Funnel with Uncertainty Ranges",
         "⏱️ Duration Bottlenecks & Latency",
@@ -177,6 +179,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🔍 Case Explorer"
     ],
     "admin": [
+        "🔬 Analyze Your Data",
         "📊 Executive Overview",
         "🔻 Funnel with Uncertainty Ranges",
         "⏱️ Duration Bottlenecks & Latency",
@@ -232,172 +235,46 @@ DATA_DIR = os.environ.get("LEAKY_DATA_DIR", "data")
 SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
     "summary": {
         "pipeline_health": {
-            "total_incidents": 5000,
-            "total_reconstructed_cases": 5125,
-            "cases_initiating_fir": 4347,
-            "cases_reaching_verdict": 1397,
-            "overall_conviction_reach_rate_pct": 32.14,
-            "overall_conviction_rate_pct": 8.4,
-            "overall_attrition_rate_pct": 91.6,
-            "median_end_to_end_journey_days": 218.0
+            "total_incidents": 0,
+            "total_reconstructed_cases": 0,
+            "cases_initiating_fir": 0,
+            "cases_reaching_verdict": 0,
+            "overall_conviction_reach_rate_pct": 0.0,
+            "overall_conviction_rate_pct": 0.0,
+            "overall_attrition_rate_pct": 0.0,
+            "median_end_to_end_journey_days": 0.0
         },
-        "systemic_leak_points_detected": [
-            {
-                "leak_code": "LP-01-FORENSIC-DELAY",
-                "agency": "Forensic Science Lab",
-                "district": "D3_Rudrapur",
-                "title": "Severe Forensic Lab Turnaround Delay",
-                "multiplier": 3.19,
-                "delay_days": 137.5,
-                "baseline_days": 43.0,
-                "affected_cases": 201
-            },
-            {
-                "leak_code": "LP-02-POLICE-ATTRITION",
-                "agency": "Police Investigation",
-                "district": "D6_Shivgarh",
-                "title": "Excessive FIR-to-Chargesheet Drop-off",
-                "drop_off_leak_pct": 72.2,
-                "chargesheet_rate_pct": 27.8,
-                "state_benchmark_pct": 59.0,
-                "affected_firs": 392
-            },
-            {
-                "leak_code": "LP-03-COURT-DELAY",
-                "agency": "Judiciary / Trial Courts",
-                "district": "D7_Anandpur",
-                "title": "Severe Judicial Trial Adjudication Delay",
-                "multiplier": 2.14,
-                "trial_delay_days": 612.9,
-                "baseline_days": 288.0,
-                "cases_in_trial": 180
-            }
-        ],
-        "district_vulnerability_ranking": [
-            {"district": "D6_Shivgarh", "score": 56.5, "status": "CRITICAL"},
-            {"district": "D7_Anandpur", "score": 36.6, "status": "CRITICAL"},
-            {"district": "D3_Rudrapur", "score": 34.0, "status": "CRITICAL"},
-            {"district": "D4_Kalyanpur", "score": 5.3, "status": "NORMAL"},
-            {"district": "D2_Chandranagar", "score": 4.4, "status": "NORMAL"},
-            {"district": "D5_Mayaganj", "score": 3.4, "status": "NORMAL"},
-            {"district": "D8_Devkalan", "score": 2.5, "status": "NORMAL"},
-            {"district": "D1_Suryapur", "score": 2.0, "status": "NORMAL"}
-        ]
+        "systemic_leak_points_detected": [],
+        "district_vulnerability_ranking": []
     },
     "funnel": {
         "stages": ["FIR", "Medical Exam", "Forensic Lab", "Chargesheet", "Court Verdict"],
-        "counts": [5000, 4200, 3100, 1850, 420],
-        "retention_pct": [100.0, 84.0, 62.0, 37.0, 8.4]
+        "counts": [0, 0, 0, 0, 0],
+        "retention_pct": [0.0, 0.0, 0.0, 0.0, 0.0]
     },
     "dp_funnel": {
         "epsilon_per_stage": 0.25,
-        "theoretical_95pct_error_margin": 12.0,
-        "funnel_stages": [
-            {"stage_id": "FIR_REGISTERED", "stage_name": "1. Police FIR", "raw_case_count": 5000, "noisy_case_count": 5000, "confidence_margin_95": 12.0, "dp_retention_pct": 100.0, "dp_conversion_pct": 100.0, "is_k_anonymity_suppressed": False},
-            {"stage_id": "MEDICAL_EXAM", "stage_name": "2. Hospital MLC", "raw_case_count": 4200, "noisy_case_count": 4200, "confidence_margin_95": 12.0, "dp_retention_pct": 84.0, "dp_conversion_pct": 84.0, "is_k_anonymity_suppressed": False},
-            {"stage_id": "FORENSIC_REPORT", "stage_name": "3. Forensic Lab (FSL)", "raw_case_count": 3100, "noisy_case_count": 3100, "confidence_margin_95": 12.0, "dp_retention_pct": 62.0, "dp_conversion_pct": 73.8, "is_k_anonymity_suppressed": False},
-            {"stage_id": "CHARGESHEET_FILED", "stage_name": "4. Prosecution Chargesheet", "raw_case_count": 1850, "noisy_case_count": 1850, "confidence_margin_95": 12.0, "dp_retention_pct": 37.0, "dp_conversion_pct": 59.7, "is_k_anonymity_suppressed": False},
-            {"stage_id": "COURT_VERDICT", "stage_name": "5. Court Trial Verdict", "raw_case_count": 420, "noisy_case_count": 420, "confidence_margin_95": 12.0, "dp_retention_pct": 8.4, "dp_conversion_pct": 22.7, "is_k_anonymity_suppressed": False}
-        ]
+        "theoretical_95pct_error_margin": 0.0,
+        "funnel_stages": []
     },
     "district_leakage": {},
     "dp_districts": {},
-    "bottlenecks": {
-        "FIR_REGISTERED -> MEDICAL_EXAM": {
-            "median_days": 2.0,
-            "iqr_days": 3.0,
-            "p95_days": 7.0,
-            "delay_buckets": {"<= 24 Hours": 45.0, "1-3 Days": 35.0, "> 3 Days": 20.0}
-        },
-        "MEDICAL_EXAM -> FORENSIC_REPORT": {
-            "median_days": 43.0,
-            "iqr_days": 35.0,
-            "p95_days": 138.0,
-            "delay_buckets": {"<= 30 Days": 32.0, "31-60 Days": 28.0, "> 60 Days": 40.0}
-        },
-        "FORENSIC_REPORT -> CHARGESHEET_FILED": {
-            "median_days": 21.0,
-            "iqr_days": 18.0,
-            "p95_days": 55.0,
-            "delay_buckets": {"<= 30 Days": 68.0, "31-60 Days": 22.0, "> 60 Days": 10.0}
-        },
-        "CHARGESHEET_FILED -> COURT_VERDICT": {
-            "median_days": 284.0,
-            "iqr_days": 210.0,
-            "p95_days": 650.0,
-            "delay_buckets": {"<= 180 Days": 15.0, "181-365 Days": 42.0, "> 365 Days": 43.0}
-        }
-    },
+    "bottlenecks": {},
     "categories": {},
     "evaluation": {
-        "pairwise_metrics": {
-            "optimal_threshold": 0.85,
-            "total_candidate_pairs": 706105,
-            "metrics_at_default_threshold": {"recall": 0.8846, "precision": 0.572, "f1_score": 0.694}
-        },
-        "cluster_metrics": {
-            "bcubed_f1": 0.9288,
-            "macro_purity": 0.972
-        },
-        "pairwise_threshold_table": [
-            {"threshold": 0.50, "precision": 0.42, "recall": 0.95, "f1": 0.58},
-            {"threshold": 0.65, "precision": 0.50, "recall": 0.92, "f1": 0.65},
-            {"threshold": 0.75, "precision": 0.54, "recall": 0.90, "f1": 0.68},
-            {"threshold": 0.85, "precision": 0.57, "recall": 0.88, "f1": 0.69},
-            {"threshold": 0.95, "precision": 0.75, "recall": 0.70, "f1": 0.72}
-        ]
+        "pairwise_metrics": {},
+        "cluster_metrics": {},
+        "pairwise_threshold_table": []
     },
     "privacy_audit": {
-        "status": "COMPLIANT",
-        "epsilon_total": 10.0,
-        "k_anonymity_threshold": 5,
-        "privacy_budget_summary": {
-            "total_epsilon_allocated": 10.0,
-            "spent_epsilon": 2.35,
-            "remaining_epsilon": 7.65
-        }
+        "status": "UNINITIALIZED",
+        "privacy_budget_summary": {}
     },
-    "policy_context": {
-        "lp_01": {
-            "leak_code": "LP-01-FORENSIC-DELAY",
-            "leak_point_label": "Severe Forensic Lab Turnaround Delay",
-            "finding": "Forensic report generation exceeds 90-day statutory threshold",
-            "suggested_intervention": "Automate digital transmission of biological forensic reports",
-            "sources": [{"title": "POCSO Act 2012", "url": "https://wcd.nic.in", "source_domain": "wcd.nic.in", "summary": "Section 35(2)"}]
-        },
-        "lp_02": {
-            "leak_code": "LP-02-POLICE-ATTRITION",
-            "leak_point_label": "Excessive FIR-to-Chargesheet Drop-off",
-            "finding": "72.2% drop-off in D6 Shivgarh",
-            "suggested_intervention": "Mandate recording of Sec 164 statements within 48h",
-            "sources": [{"title": "BNSS 2023", "url": "https://mha.gov.in", "source_domain": "mha.gov.in", "summary": "Section 173(2)"}]
-        },
-        "lp_03": {
-            "leak_code": "LP-03-COURT-DELAY",
-            "leak_point_label": "Severe Judicial Trial Adjudication Delay",
-            "finding": "612.9 days trial duration in D7 Anandpur",
-            "suggested_intervention": "Fast Track Special Courts (FTSC) establishment",
-            "sources": [{"title": "Department of Justice Guidelines", "url": "https://doj.gov.in", "source_domain": "doj.gov.in", "summary": "FTSC Scheme"}]
-        },
-        "lp_04": {
-            "leak_code": "LP-04-HOSPITAL-DELAY",
-            "leak_point_label": "MLC Examination Delay",
-            "finding": "Delay in medical examination exceeding 24 hours",
-            "suggested_intervention": "Designate 24/7 forensic medical examiners at district hospitals",
-            "sources": [{"title": "MoHFW Guidelines", "url": "https://mohfw.gov.in", "source_domain": "mohfw.gov.in", "summary": "Medico-Legal Care"}]
-        },
-        "lp_05": {
-            "leak_code": "LP-05-PROSECUTION-GAP",
-            "leak_point_label": "Prosecutorial Scrutiny Latency",
-            "finding": "Delay in chargesheet submission after investigation completion",
-            "suggested_intervention": "Digital integration between Police CCTNS and e-Courts",
-            "sources": [{"title": "NCRB Crime in India", "url": "https://ncrb.gov.in", "source_domain": "ncrb.gov.in", "summary": "Disposal of Cases"}]
-        }
-    },
+    "policy_context": {},
     "journey": {
-        "median_journey_days": 218.0,
-        "total_cases": 5000,
-        "total_events": 14384
+        "median_journey_days": 0.0,
+        "total_cases": 0,
+        "total_events": 0
     }
 }
 
@@ -996,3 +873,82 @@ def load_dashboard_bundle(
         "policy_context": _clean_policy_sources(policy_context),
         "journey": journey,
     }
+
+
+# ==============================================================================
+# Analyze Your Data Client Functions
+# ==============================================================================
+
+def get_analyze_template(token: Optional[str] = None, timeout: int = 15) -> Optional[bytes]:
+    """Retrieves zip template of header-only CSVs (GET /api/v1/analyze/template)."""
+    url = f"{get_api_base_url()}/api/v1/analyze/template"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.content
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return None
+
+
+def run_analyze_sample(limit: int = 500, token: Optional[str] = None, timeout: int = 60) -> Dict[str, Any]:
+    """Runs analysis on sample data (POST /api/v1/analyze/sample)."""
+    url = f"{get_api_base_url()}/api/v1/analyze/sample"
+    params = {"limit": limit}
+    try:
+        resp = requests.post(url, params=params, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        detail = "Failed to run sample analysis."
+        try:
+            detail = resp.json().get("detail", detail)
+        except Exception:
+            detail = resp.text or detail
+        _handle_response_status(resp)
+        return {"error": detail, "status_code": resp.status_code}
+    except Exception as exc:
+        _handle_request_error(exc, url)
+        return {"error": f"API unreachable: {str(exc)}", "status_code": 503}
+
+
+def run_analyze_upload(files: Dict[str, Any], token: Optional[str] = None, timeout: int = 60) -> Dict[str, Any]:
+    """Uploads 5 CSV files for analysis (POST /api/v1/analyze/upload)."""
+    url = f"{get_api_base_url()}/api/v1/analyze/upload"
+    headers = {}
+    active_token = _get_active_token(token)
+    if active_token:
+        headers["Authorization"] = f"Bearer {active_token}"
+    try:
+        resp = requests.post(url, files=files, headers=headers, timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        detail = "Failed to analyze uploaded files."
+        try:
+            detail = resp.json().get("detail", detail)
+        except Exception:
+            detail = resp.text or detail
+        _handle_response_status(resp)
+        return {"error": detail, "status_code": resp.status_code}
+    except Exception as exc:
+        _handle_request_error(exc, url)
+        return {"error": f"API unreachable: {str(exc)}", "status_code": 503}
+
+
+def run_analyze_case(sections: Dict[str, Any], token: Optional[str] = None, timeout: int = 30) -> Dict[str, Any]:
+    """Analyzes a single case entered by hand (POST /api/v1/analyze/case)."""
+    url = f"{get_api_base_url()}/api/v1/analyze/case"
+    try:
+        resp = requests.post(url, json=sections, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        detail = "Failed to analyze case."
+        try:
+            detail = resp.json().get("detail", detail)
+        except Exception:
+            detail = resp.text or detail
+        _handle_response_status(resp)
+        return {"error": detail, "status_code": resp.status_code}
+    except Exception as exc:
+        _handle_request_error(exc, url)
+        return {"error": f"API unreachable: {str(exc)}", "status_code": 503}
