@@ -6,6 +6,7 @@ tests/test_data/
 *.duckdb
 .coverage
 htmlcov/
+*.pyc
 
 # Environment variables & configurations
 .env
