@@ -168,6 +168,23 @@ class DifferentiallyPrivateMean:
         }
 
 
+DEFAULT_TOTAL_EPSILON = 10.0
+
+
+def get_configured_total_budget() -> float:
+    """Reads configured total DP budget from environment variables, defaulting to 10.0."""
+    for var in ["DP_TOTAL_BUDGET", "TOTAL_EPSILON_BUDGET", "DEMO_DP_BUDGET", "LEAKY_TOTAL_EPSILON"]:
+        val = os.getenv(var)
+        if val:
+            try:
+                f_val = float(val)
+                if f_val > 0:
+                    return f_val
+            except ValueError:
+                pass
+    return DEFAULT_TOTAL_EPSILON
+
+
 class PrivacyBudgetTracker:
     """
     Manages global privacy budget accounting under Sequential Composition.
@@ -176,7 +193,9 @@ class PrivacyBudgetTracker:
     (eps_i, delta_i)-DP respectively, the combined release satisfies
     (sum(eps_i), sum(delta_i))-DP.
     """
-    def __init__(self, total_epsilon: float = 10.0, total_delta: float = 1e-4):
+    def __init__(self, total_epsilon: Optional[float] = None, total_delta: float = 1e-4):
+        if total_epsilon is None:
+            total_epsilon = get_configured_total_budget()
         self.total_epsilon = float(total_epsilon)
         self.total_delta = float(total_delta)
         self.spent_epsilon = 0.0
@@ -229,7 +248,11 @@ class PrivacyBudgetTracker:
     def get_ledger(self) -> List[Dict[str, Any]]:
         return list(self.ledger)
 
-    def reset(self) -> None:
+    def reset(self, total_epsilon: Optional[float] = None) -> None:
+        if total_epsilon is not None:
+            self.total_epsilon = float(total_epsilon)
+        else:
+            self.total_epsilon = get_configured_total_budget()
         self.spent_epsilon = 0.0
         self.spent_delta = 0.0
         self.ledger.clear()

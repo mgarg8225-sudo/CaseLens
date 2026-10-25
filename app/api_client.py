@@ -137,6 +137,12 @@ def _handle_response_status(resp: requests.Response) -> bool:
             "warning",
             f"🛡️ **Privacy Budget Limit Reached**: {detail}"
         )
+        if _HAS_STREAMLIT and st is not None:
+            try:
+                st.session_state["privacy_budget_exhausted"] = True
+                st.session_state["budget_exhausted_detail"] = detail
+            except Exception:
+                pass
     else:
         _show_ui_message(
             "error",
@@ -457,14 +463,50 @@ def login(username: str, password: str, timeout: int = 10) -> Optional[Dict[str,
 
 
 # ==============================================================================
+# ==============================================================================
 # 2. Aggregates Endpoints (Viewer+)
 # ==============================================================================
 
-def get_summary(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+def _build_filter_params(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """Formats filter parameters into clean HTTP query parameters."""
+    params = {}
+    if district and str(district).strip() not in ["All", "All Districts", ""]:
+        params["district"] = str(district).strip()
+    if from_date and str(from_date).strip():
+        params["from_date"] = str(from_date).strip()
+    if to_date and str(to_date).strip():
+        params["to_date"] = str(to_date).strip()
+    if stage and str(stage).strip() not in ["All", "All Stages", "All Institutions", ""]:
+        params["stage"] = str(stage).strip()
+    if category and str(category).strip() not in ["All", "All Categories", ""]:
+        params["category"] = str(category).strip()
+    for k, v in kwargs.items():
+        if v is not None:
+            params[k] = v
+    return params
+
+
+def get_summary(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
     """Retrieves executive summary metrics (GET /api/v1/summary)."""
     url = f"{get_api_base_url()}/api/v1/summary"
+    params = _build_filter_params(district, from_date, to_date, stage, category)
     try:
-        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
         if _handle_response_status(resp):
             body = resp.json()
             return body.get("data", body)
@@ -473,11 +515,22 @@ def get_summary(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any
     return load_json_fallback("analytics_summary.json")
 
 
-def get_funnel(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+def get_funnel(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    epsilon: float = 0.10,
+    k_threshold: int = 5,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
     """Retrieves differential privacy case attrition funnel (GET /api/v1/funnel)."""
     url = f"{get_api_base_url()}/api/v1/funnel"
+    params = _build_filter_params(district, from_date, to_date, stage, category, epsilon=epsilon, k_threshold=k_threshold)
     try:
-        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
         if _handle_response_status(resp):
             body = resp.json()
             return body.get("funnel", body)
@@ -486,11 +539,20 @@ def get_funnel(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]
     return load_json_fallback("privacy_dp_funnel.json")
 
 
-def get_districts(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+def get_districts(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
     """Retrieves district-level leakage diagnostics (GET /api/v1/districts)."""
     url = f"{get_api_base_url()}/api/v1/districts"
+    params = _build_filter_params(district, from_date, to_date, stage, category)
     try:
-        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
         if _handle_response_status(resp):
             body = resp.json()
             return body.get("district_analytics", body)
@@ -512,17 +574,48 @@ def get_policy_context(token: Optional[str] = None, timeout: int = 10) -> Dict[s
     return load_json_fallback("policy_context_cache.json")
 
 
-def get_evaluation(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+def get_evaluation(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
     """Retrieves linkage model evaluation metrics (GET /api/v1/evaluation)."""
     url = f"{get_api_base_url()}/api/v1/evaluation"
+    params = _build_filter_params(district, from_date, to_date, stage, category)
     try:
-        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
         if _handle_response_status(resp):
             body = resp.json()
             return body.get("evaluation", body)
     except Exception as exc:
         _handle_request_error(exc, url)
     return load_json_fallback("evaluation_metrics.json")
+
+
+def get_before_after(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
+    """Retrieves dynamic Before vs After policy transformation insights (GET /api/v1/before-after)."""
+    url = f"{get_api_base_url()}/api/v1/before-after"
+    params = _build_filter_params(district, from_date, to_date, stage, category)
+    try:
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            body = resp.json()
+            return body.get("data", body)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {}
 
 
 def get_journey(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
@@ -542,11 +635,20 @@ def get_journey(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any
 # 3. Deep Analytics Endpoints (Analyst+)
 # ==============================================================================
 
-def get_bottlenecks(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+def get_bottlenecks(
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
     """Retrieves duration bottleneck percentiles (GET /api/v1/bottlenecks)."""
     url = f"{get_api_base_url()}/api/v1/bottlenecks"
+    params = _build_filter_params(district, from_date, to_date, stage, category)
     try:
-        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        resp = requests.get(url, params=params, headers=_build_headers(token), timeout=timeout)
         if _handle_response_status(resp):
             body = resp.json()
             return body.get("transitions", body)
@@ -736,6 +838,35 @@ def get_audit_logs(
     return {"logs": [], "total_logs_returned": 0}
 
 
+def reset_privacy_budget(
+    total_epsilon: Optional[float] = None,
+    total_delta: float = 1e-4,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
+    """
+    Reconfigures or resets the Differential Privacy budget under administrative authority.
+    Calls POST /api/v1/privacy/budget/reset. Accessible exclusively to Administrators.
+    """
+    url = f"{get_api_base_url()}/api/v1/privacy/budget/reset"
+    payload: Dict[str, Any] = {"total_delta": total_delta}
+    if total_epsilon is not None:
+        payload["total_epsilon"] = total_epsilon
+    try:
+        resp = requests.post(url, json=payload, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            if _HAS_STREAMLIT and st is not None:
+                try:
+                    st.session_state["privacy_budget_exhausted"] = False
+                    st.session_state.pop("budget_exhausted_detail", None)
+                except Exception:
+                    pass
+            return resp.json()
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"message": "Failed to reset privacy budget", "success": False}
+
+
 def log_audit_event(
     event_type: str,
     user_id: Optional[str] = None,
@@ -799,9 +930,19 @@ def _clean_policy_sources(raw_policy: Dict[str, Any]) -> Dict[str, Any]:
     return cleaned
 
 
-def load_dashboard_bundle(token: Optional[str] = None) -> Dict[str, Any]:
+def load_dashboard_bundle(
+    token: Optional[str] = None,
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    epsilon: float = 0.25,
+    k_threshold: int = 5
+) -> Dict[str, Any]:
     """
     Fetches all primary analytical and privacy JSON artifacts via HTTP from the FastAPI backend.
+    Recomputes on server when global filters are specified.
     Gracefully falls back to precomputed artifacts if backend is unreachable or offline.
     """
     if not is_backend_available():
@@ -814,20 +955,29 @@ def load_dashboard_bundle(token: Optional[str] = None) -> Dict[str, Any]:
             "bottlenecks": load_json_fallback("analytics_bottlenecks.json"),
             "categories": load_json_fallback("analytics_category.json"),
             "evaluation": load_json_fallback("evaluation_metrics.json"),
+            "before_after": {},
             "privacy_audit": load_json_fallback("privacy_audit_report.json"),
+            "privacy_budget": {
+                "total_epsilon": 10.0,
+                "spent_epsilon": 2.35,
+                "remaining_epsilon": 7.65,
+                "composition_mode": "Sequential Composition"
+            },
             "policy_context": _clean_policy_sources(load_json_fallback("policy_context_cache.json")),
             "journey": load_json_fallback("journey_metrics.json"),
         }
 
-    summary = get_summary(token=token)
+    summary = get_summary(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, token=token)
     funnel = load_json_fallback("analytics_funnel.json")
-    dp_funnel = get_funnel(token=token)
+    dp_funnel = get_funnel(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, epsilon=epsilon, k_threshold=k_threshold, token=token)
     district_leakage = load_json_fallback("analytics_district_leakage.json")
-    dp_districts = get_districts(token=token)
-    bottlenecks = get_bottlenecks(token=token)
+    dp_districts = get_districts(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, token=token)
+    bottlenecks = get_bottlenecks(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, token=token)
     categories = get_categories(token=token)
-    evaluation = get_evaluation(token=token)
+    evaluation = get_evaluation(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, token=token)
+    before_after = get_before_after(district=district, from_date=from_date, to_date=to_date, stage=stage, category=category, token=token)
     privacy_audit = get_privacy_diagnostics(token=token)
+    privacy_budget = get_privacy_budget(token=token)
     policy_context = get_policy_context(token=token)
     journey = get_journey(token=token)
 
@@ -840,7 +990,9 @@ def load_dashboard_bundle(token: Optional[str] = None) -> Dict[str, Any]:
         "bottlenecks": bottlenecks,
         "categories": categories,
         "evaluation": evaluation,
+        "before_after": before_after,
         "privacy_audit": privacy_audit,
+        "privacy_budget": privacy_budget,
         "policy_context": _clean_policy_sources(policy_context),
         "journey": journey,
     }

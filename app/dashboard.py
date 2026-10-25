@@ -51,6 +51,7 @@ from app.api_client import (
     get_random_case,
     get_review_queue,
     get_audit_logs,
+    reset_privacy_budget,
     log_audit_event,
     load_dashboard_bundle,
     load_json_fallback,
@@ -455,9 +456,69 @@ def load_json_file(filename: str) -> Dict[str, Any]:
 
 
 @st.cache_data
-def load_data_bundle(token: Optional[str] = None) -> Dict[str, Any]:
+def load_data_bundle(
+    token: Optional[str] = None,
+    district: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    stage: Optional[str] = None,
+    category: Optional[str] = None,
+    epsilon: float = 0.25,
+    k_threshold: int = 5
+) -> Dict[str, Any]:
     """Caches all primary analytical and privacy JSON artifacts via the API client."""
-    return load_dashboard_bundle(token=token)
+    return load_dashboard_bundle(
+        token=token,
+        district=district,
+        from_date=from_date,
+        to_date=to_date,
+        stage=stage,
+        category=category,
+        epsilon=epsilon,
+        k_threshold=k_threshold
+    )
+
+
+def render_filter_badge(district: str, date_range: Any, stage: str, remaining_eps: Any):
+    """Renders a small badge at the top of each page showing active global filters."""
+    dist_label = district if district and district != "All Districts" else "All Districts"
+    stage_label = stage if stage and stage != "All Stages" else "All Stages"
+    
+    date_label = "2023–2026 (All)"
+    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+        try:
+            d0, d1 = date_range[0], date_range[1]
+            date_label = f"{d0.strftime('%b %Y')} – {d1.strftime('%b %Y')}"
+        except Exception:
+            date_label = f"{date_range[0]} – {date_range[1]}"
+
+    eps_str = f"{remaining_eps:.2f}" if isinstance(remaining_eps, (int, float)) else str(remaining_eps or "7.65")
+
+    badge_html = f"""
+    <div style="display: flex; align-items: center; justify-content: space-between; background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 7px 14px; margin-bottom: 14px; font-size: 0.80rem; color: #5F5F5F;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+            <strong style="color: #8B1E3F;">📍 Filter Scope:</strong>
+            <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">District: {dist_label}</span>
+            <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">Period: {date_label}</span>
+            <span style="background: #F0ECE5; color: #222222; padding: 2px 7px; border-radius: 3px; font-weight: 500;">Milestone: {stage_label}</span>
+        </div>
+        <div style="font-weight: 600; color: #222222; white-space: nowrap;">
+            🛡️ Remaining DP Budget: <span style="color: #8B1E3F;">{eps_str} ε</span>
+        </div>
+    </div>
+    """
+    st.markdown(badge_html, unsafe_allow_html=True)
+
+
+def render_too_few_cases_warning():
+    """Renders a friendly message when filtered cohort contains fewer than k cases."""
+    st.warning(
+        "⚠️ **Too few cases to display safely**\n\n"
+        "Fewer than 5 reconstructed cases match your filter criteria. "
+        "To prevent survivor re-identification and strictly comply with small-cell k-anonymity suppression (k ≥ 5), "
+        "aggregate statistics cannot be safely displayed for this cohort. "
+        "Please broaden your filter selection (e.g. select 'All Districts' or expand the time period)."
+    )
 
 
 def clean_policy_data(raw_policy: Dict[str, Any]) -> Dict[str, Any]:
@@ -480,6 +541,8 @@ def _num(value: Any) -> Optional[float]:
 
 
 def fmt_int(value: Any) -> str:
+    if isinstance(value, str) and ("<" in value or value == "Suppressed"):
+        return value
     n = _num(value)
     if n is None:
         return NA
@@ -487,6 +550,8 @@ def fmt_int(value: Any) -> str:
 
 
 def fmt_float(value: Any, digits: int = 1) -> str:
+    if isinstance(value, str) and ("<" in value or value == "Suppressed"):
+        return value
     n = _num(value)
     if n is None:
         return NA
@@ -494,6 +559,8 @@ def fmt_float(value: Any, digits: int = 1) -> str:
 
 
 def fmt_pct(value: Any, digits: int = 1) -> str:
+    if isinstance(value, str) and ("<" in value or value == "Suppressed"):
+        return value
     n = _num(value)
     if n is None:
         return NA
@@ -588,6 +655,15 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
     priv = bundle.get("privacy_audit") if isinstance(bundle.get("privacy_audit"), dict) else {}
     budget = priv.get("privacy_budget_summary") if isinstance(priv.get("privacy_budget_summary"), dict) else {}
+    live_budget = bundle.get("privacy_budget") if isinstance(bundle.get("privacy_budget"), dict) else {}
+    if live_budget and "remaining_epsilon" in live_budget:
+        budget = {
+            "total_epsilon_allocated": live_budget.get("total_epsilon", budget.get("total_epsilon_allocated", 10.0)),
+            "spent_epsilon": live_budget.get("spent_epsilon", budget.get("spent_epsilon", 0.0)),
+            "remaining_epsilon": live_budget.get("remaining_epsilon", budget.get("remaining_epsilon", 10.0)),
+            "composition_theorem": budget.get("composition_theorem", "Sequential Composition"),
+            "budget_ledger_entries": live_budget.get("total_queries_executed", budget.get("budget_ledger_entries", 0))
+        }
     dp_mech = priv.get("differential_privacy_mechanisms") if isinstance(priv.get("differential_privacy_mechanisms"), dict) else {}
     k_eval = priv.get("k_anonymity_evaluation") if isinstance(priv.get("k_anonymity_evaluation"), dict) else {}
     suppression = k_eval.get("small_cell_suppression_audit") if isinstance(k_eval.get("small_cell_suppression_audit"), dict) else {}
@@ -644,6 +720,7 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "epsilon_allocated_display": fmt_float(budget.get("total_epsilon_allocated"), 2),
         "epsilon_spent_display": fmt_float(budget.get("spent_epsilon"), 2),
         "epsilon_remaining_display": fmt_float(budget.get("remaining_epsilon"), 2),
+        "epsilon_remaining_num": _num(budget.get("remaining_epsilon")),
         "zero_pii_label": zero_pii_label,
         "zero_pii_delta": zero_pii_delta,
         "singling_before_display": fmt_pct(before.get("singling_out_risk_pct")),
@@ -662,11 +739,8 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
 
 if _is_running_in_streamlit() and st.session_state.get("authenticated"):
-    DATA = load_data_bundle(st.session_state.get("token"))
-    KPIS = compute_dashboard_kpis(DATA)
-
     # ==============================================================================
-    # 4. Sidebar Navigation & Session Controls
+    # 4. Sidebar Navigation, Global Filters & Session Controls
     # ==============================================================================
 
     with st.sidebar:
@@ -702,17 +776,125 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
         )
 
         st.markdown("---")
-        st.markdown("### 🔒 Privacy Controls")
-        EPSILON_SIM = st.slider(r"Epsilon ($\epsilon$) Noise Level", min_value=0.1, max_value=2.0, value=0.25, step=0.05,
-                                help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality.")
-        K_ANONYMITY = st.number_input("k-Anonymity Suppression Threshold", min_value=3, max_value=20, value=5, step=1,
-                                      help="Cells with fewer than k cases are strictly suppressed as '<k'.")
+        st.markdown("### 🎛️ Global Filters")
+        DISTRICT_OPTIONS = [
+            "All Districts",
+            "D1_Suryapur",
+            "D2_Chandranagar",
+            "D3_Rudrapur",
+            "D4_Kalyanpur",
+            "D5_Mayaganj",
+            "D6_Shivgarh",
+            "D7_Anandpur",
+            "D8_Devkalan"
+        ]
+        FILTER_DISTRICT = st.selectbox(
+            "District",
+            DISTRICT_OPTIONS,
+            index=0,
+            help="Filter analytical cohort to a specific judicial district. Default 'All Districts' reproduces statewide baseline."
+        )
+
+        c_d1, c_d2 = st.columns(2)
+        with c_d1:
+            FILTER_FROM = st.date_input(
+                "From Date",
+                value=datetime(2022, 12, 31).date(),
+                min_value=datetime(2022, 1, 1).date(),
+                max_value=datetime(2026, 12, 31).date(),
+                help="Start date of case inception window."
+            )
+        with c_d2:
+            FILTER_TO = st.date_input(
+                "To Date",
+                value=datetime(2026, 11, 27).date(),
+                min_value=datetime(2022, 1, 1).date(),
+                max_value=datetime(2026, 12, 31).date(),
+                help="End date of case inception window."
+            )
+
+        STAGE_OPTIONS = [
+            "All Stages",
+            "1. Police FIR",
+            "2. Hospital MLC",
+            "3. Forensic Lab (FSL)",
+            "4. Prosecution Chargesheet",
+            "5. Court Verdict"
+        ]
+        FILTER_STAGE = st.selectbox(
+            "Stage / Institution",
+            STAGE_OPTIONS,
+            index=0,
+            help="Filter to case trajectories that reached this institutional milestone."
+        )
 
         st.markdown("---")
+        st.markdown("### 🔒 Privacy Controls")
+        EPSILON_SIM = st.slider(
+            r"Epsilon ($\epsilon$) Noise Level",
+            min_value=0.1,
+            max_value=2.0,
+            value=0.25,
+            step=0.05,
+            help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality."
+        )
+        K_ANONYMITY = st.number_input(
+            "k-Anonymity Suppression Threshold",
+            min_value=3,
+            max_value=20,
+            value=5,
+            step=1,
+            help="Cells with fewer than k cases are strictly suppressed as '<k'."
+        )
+
+    # Server-side filter normalization
+    sel_district = None if FILTER_DISTRICT == "All Districts" else FILTER_DISTRICT
+    sel_stage = None if FILTER_STAGE == "All Stages" else FILTER_STAGE
+    sel_from = None
+    sel_to = None
+    if FILTER_FROM and FILTER_FROM > datetime(2022, 12, 31).date():
+        sel_from = str(FILTER_FROM)
+    if FILTER_TO and FILTER_TO < datetime(2026, 11, 27).date():
+        sel_to = str(FILTER_TO)
+
+    # Fetch data recomputed on FastAPI server
+    DATA = load_data_bundle(
+        token=st.session_state.get("token"),
+        district=sel_district,
+        from_date=sel_from,
+        to_date=sel_to,
+        stage=sel_stage,
+        epsilon=EPSILON_SIM,
+        k_threshold=int(K_ANONYMITY)
+    )
+    KPIS = compute_dashboard_kpis(DATA)
+
+    # Remaining DP budget widget in sidebar
+    rem_budget = DATA.get("summary", {}).get("privacy_metadata", {}).get(
+        "remaining_budget",
+        KPIS.get("epsilon_remaining_display", "7.65")
+    )
+    with st.sidebar:
+        st.markdown(f"""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 12px; margin-top: 10px; margin-bottom: 12px;">
+                <div style="font-size: 0.72rem; color: #5F5F5F; text-transform: uppercase; font-weight: 600; letter-spacing: 0.03em;">Remaining DP Budget</div>
+                <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F;">{rem_budget} <span style="font-size: 0.82rem; font-weight: 500; color: #5F5F5F;">ε</span></div>
+                <div style="font-size: 0.72rem; color: #5F5F5F; margin-top: 2px;">Sequential composition ledger</div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        if CURRENT_ROLE == "admin":
+            if st.button("🔄 Reset Budget", key="sidebar_reset_budget_btn", help="Reset differential privacy budget (Admin only)"):
+                res = reset_privacy_budget(token=st.session_state.get("token"))
+                if res.get("message") or res.get("success"):
+                    st.session_state["privacy_budget_exhausted"] = False
+                    st.cache_data.clear()
+                    st.rerun()
+
         st.markdown(f"""
             <div style="font-size: 0.75rem; color: #5F5F5F; line-height: 1.5; padding-top: 4px;">
                 <strong style="color: #222222;">System Integrity</strong><br/>
-                • {KPIS['reconstructed_cases_display']} Cases Reconstructed<br/>
+                • {KPIS['reconstructed_cases_display']} Cases in Scope<br/>
                 • Pure Laplace Differential Privacy<br/>
                 • Zero-PII Response Verification<br/>
                 • Statutory Benchmarking
@@ -729,10 +911,45 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
     if st.session_state.get("last_recorded_page") != PAGE:
         log_audit_event("PAGE_VISIT", user_id=CURRENT_USER.get("username", "anonymous"), role=CURRENT_ROLE, page=PAGE, token=st.session_state.get("token"))
         st.session_state["last_recorded_page"] = PAGE
+
+    # Differential Privacy Exhaustion Warning Banner
+    is_budget_exhausted = (
+        st.session_state.get("privacy_budget_exhausted", False)
+        or (KPIS.get("epsilon_remaining_num") is not None and KPIS.get("epsilon_remaining_num") <= 0.001)
+    )
+    if is_budget_exhausted:
+        with st.container():
+            st.markdown("""
+                <div style="background: #FFFBEB; border: 1px solid #F59E0B; border-left: 4px solid #B45309; border-radius: 4px; padding: 14px 18px; margin-bottom: 20px;">
+                    <div style="font-weight: 700; color: #92400E; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                        <span>🛡️</span> Differential Privacy Budget Exhausted (0.00 ε Remaining)
+                    </div>
+                    <div style="color: #78350F; font-size: 0.85rem; margin-top: 6px; line-height: 1.5;">
+                        The sequential DP budget has reached 0.00 ε to strictly prevent reconstruction attacks under differential privacy guarantees.
+                        <strong>Previously queried and cached analyses remain fully viewable.</strong> New uncached queries are halted until budget renewal.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            if CURRENT_ROLE == "admin":
+                col_rst1, col_rst2 = st.columns([3, 7])
+                with col_rst1:
+                    if st.button("🔄 Reset Privacy Budget (Admin)", key="global_banner_reset_budget_btn", type="primary"):
+                        res = reset_privacy_budget(token=st.session_state.get("token"))
+                        if res.get("message") or res.get("success"):
+                            st.session_state["privacy_budget_exhausted"] = False
+                            st.cache_data.clear()
+                            st.success("Privacy budget has been reset.")
+                            st.rerun()
+                        else:
+                            st.error("Failed to reset budget. Ensure admin permissions.")
 else:
     DATA = {}
     KPIS = {}
     PAGE = None
+    FILTER_DISTRICT = "All Districts"
+    FILTER_FROM = datetime(2022, 12, 31).date()
+    FILTER_TO = datetime(2026, 11, 27).date()
+    FILTER_STAGE = "All Stages"
 
 
 
@@ -796,7 +1013,13 @@ if PAGE == "📊 Executive Overview":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
     summary_data = DATA.get("summary", {})
+    if summary_data.get("too_few_cases"):
+        render_too_few_cases_warning()
+        st.stop()
+
     health = summary_data.get("pipeline_health", {})
 
     # Top KPI Metrics Cards (4 wide columns to prevent text/number wrapping)
@@ -933,7 +1156,13 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
     dp_funnel = DATA.get("dp_funnel", {})
+    if dp_funnel.get("too_few_cases"):
+        render_too_few_cases_warning()
+        st.stop()
+
     funnel_stages = dp_funnel.get("funnel_stages", [])
 
     if not funnel_stages:
@@ -974,6 +1203,13 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
             for s in funnel_stages
         ]
 
+        text_labels = []
+        for s, val, err in zip(funnel_stages, noisy_counts, err_margins):
+            if s.get("is_k_anonymity_suppressed") or str(s.get("noisy_case_count")) == "<5":
+                text_labels.append("<5<br/>(Suppressed)")
+            else:
+                text_labels.append(f"{val:,}<br/>(±{err:.1f})")
+
         fig_funnel = go.Figure()
 
         fig_funnel.add_trace(go.Bar(
@@ -985,7 +1221,7 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
                 color="#8B1E3F",
                 line=dict(color="#FFFFFF", width=1)
             ),
-            text=[f"{val:,}<br/>(±{err:.1f})" for val, err in zip(noisy_counts, err_margins)],
+            text=text_labels,
             textposition="auto"
         ))
 
@@ -1002,13 +1238,15 @@ elif PAGE == "🔻 Funnel with Uncertainty Ranges":
         st.markdown("### 📋 Milestone-by-Milestone Attrition Accounting")
         table_rows = []
         for idx, s in enumerate(funnel_stages):
+            is_supp = s.get("is_k_anonymity_suppressed") or str(s.get("noisy_case_count")) == "<5"
+            cnt_disp = "<5" if is_supp else f"{noisy_counts[idx]:,}"
             table_rows.append({
                 "Milestone": s["stage_name"],
-                "Privatized Case Volume (DP)": f"{noisy_counts[idx]:,}",
-                f"Error Margin ({CONF_LEVEL.split()[0]})": f"±{err_margins[idx]:.1f}" if not s.get("is_k_anonymity_suppressed") else "Suppressed",
-                "Cumulative Retention": fmt_pct(s.get("dp_retention_pct")),
-                "Step Conversion": fmt_pct(s.get("dp_conversion_pct")),
-                f"k-Suppressed (<{K_ANONYMITY})": "⚠️ Masked" if s.get("is_k_anonymity_suppressed") else "✅ Compliant"
+                "Privatized Case Volume (DP)": cnt_disp,
+                f"Error Margin ({CONF_LEVEL.split()[0]})": "Suppressed" if is_supp else f"±{err_margins[idx]:.1f}",
+                "Cumulative Retention": "Suppressed" if is_supp else fmt_pct(s.get("dp_retention_pct")),
+                "Step Conversion": "Suppressed" if is_supp else fmt_pct(s.get("dp_conversion_pct")),
+                f"k-Suppressed (<{K_ANONYMITY})": "⚠️ Masked" if is_supp else "✅ Compliant"
             })
         st.dataframe(pd.DataFrame(table_rows), width="stretch")
 
@@ -1028,7 +1266,12 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
     bottlenecks = DATA.get("bottlenecks", {})
+    if bottlenecks.get("too_few_cases"):
+        render_too_few_cases_warning()
+        st.stop()
 
     # Key Stage Transitions
     key_transitions = [
@@ -1047,18 +1290,25 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
             med = trans_data.get("median_days", 0.0)
             p95 = trans_data.get("p95_days", 0.0)
             sample = trans_data.get("sample_count", 0)
+            med_str = f"{med:.1f}" if isinstance(med, (int, float)) else str(med)
+            p95_str = f"{p95:.1f}" if isinstance(p95, (int, float)) else str(p95)
+            sample_str = f"{sample:,}" if isinstance(sample, int) else str(sample)
             st.markdown(f"""
                 <div class="metric-card">
                     <div class="metric-label">{label}</div>
-                    <div class="metric-value">{med:.1f} <span style="font-size: 0.85rem; color: #5F5F5F;">days</span></div>
-                    <div class="metric-delta">P95: {p95:.1f} days (n={sample:,})</div>
+                    <div class="metric-value">{med_str} <span style="font-size: 0.85rem; color: #5F5F5F;">days</span></div>
+                    <div class="metric-delta">P95: {p95_str} days (n={sample_str})</div>
                 </div>
             """, unsafe_allow_html=True)
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
     # Detailed Transition Breakdown & Delay Distribution
-    sel_trans = st.selectbox("Select Transition to Inspect Latency Distribution", list(bottlenecks.keys()), index=0)
+    valid_transitions = [k for k in bottlenecks.keys() if "->" in k]
+    if not valid_transitions:
+        st.warning("No transition duration data available for this filter.")
+        st.stop()
+    sel_trans = st.selectbox("Select Transition to Inspect Latency Distribution", valid_transitions, index=0)
     selected_data = bottlenecks.get(sel_trans, {})
 
     b_left, b_right = st.columns([6, 5])
@@ -1078,15 +1328,29 @@ elif PAGE == "⏱️ Duration Bottlenecks & Latency":
             st.plotly_chart(fig_buckets, width="stretch")
 
     with b_right:
+        s_cnt = selected_data.get('sample_count', 0)
+        s_cnt_disp = f"{s_cnt:,}" if isinstance(s_cnt, int) else str(s_cnt)
+        mean_d = selected_data.get('mean_days', 0.0)
+        mean_disp = f"{mean_d:.1f}" if isinstance(mean_d, (int, float)) else str(mean_d)
+        std_d = selected_data.get('std_days', 0.0)
+        std_disp = f"{std_d:.1f}" if isinstance(std_d, (int, float)) else str(std_d)
+        med_d = selected_data.get('median_days', 0.0)
+        med_disp = f"{med_d:.1f}" if isinstance(med_d, (int, float)) else str(med_d)
+        iqr_d = selected_data.get('iqr_days', 0.0)
+        iqr_disp = f"{iqr_d:.1f}" if isinstance(iqr_d, (int, float)) else str(iqr_d)
+        p90_d = selected_data.get('p90_days', 0.0)
+        p90_disp = f"{p90_d:.1f}" if isinstance(p90_d, (int, float)) else str(p90_d)
+        p95_d = selected_data.get('p95_days', 0.0)
+        p95_disp = f"{p95_d:.1f}" if isinstance(p95_d, (int, float)) else str(p95_d)
         st.markdown("### 📊 Non-Parametric Latency Percentiles")
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 16px; color: #222222;">
-                <p><strong>Sample Size:</strong> {selected_data.get('sample_count', 0):,} cases</p>
-                <p><strong>Mean Duration:</strong> {selected_data.get('mean_days', 0.0):.1f} ± {selected_data.get('std_days', 0.0):.1f} days</p>
-                <p><strong>Median (P50):</strong> {selected_data.get('median_days', 0.0):.1f} days</p>
-                <p><strong>Interquartile Range (IQR):</strong> {selected_data.get('iqr_days', 0.0):.1f} days (P25: {selected_data.get('p25_days', 0.0)}d - P75: {selected_data.get('p75_days', 0.0)}d)</p>
-                <p><strong>Severe Delay (P90):</strong> {selected_data.get('p90_days', 0.0):.1f} days</p>
-                <p><strong>Extreme Outlier (P95):</strong> {selected_data.get('p95_days', 0.0):.1f} days</p>
+                <p><strong>Sample Size:</strong> {s_cnt_disp} cases</p>
+                <p><strong>Mean Duration:</strong> {mean_disp} ± {std_disp} days</p>
+                <p><strong>Median (P50):</strong> {med_disp} days</p>
+                <p><strong>Interquartile Range (IQR):</strong> {iqr_disp} days (P25: {selected_data.get('p25_days', 0.0)}d - P75: {selected_data.get('p75_days', 0.0)}d)</p>
+                <p><strong>Severe Delay (P90):</strong> {p90_disp} days</p>
+                <p><strong>Extreme Outlier (P95):</strong> {p95_disp} days</p>
                 <hr style="border-color: #E3DED6; margin: 10px 0;"/>
                 <p style="color: #8B1E3F; font-weight: 500;"><strong>Statutory Mandate Compliance:</strong> {selected_data.get('statutory_compliance', {}).get('within_60_days_pct', 0.0)}% within 60 days</p>
             </div>
@@ -1108,7 +1372,13 @@ elif PAGE == "🔗 Linkage Quality & Evaluation":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
     eval_data = DATA.get("evaluation", {})
+    if eval_data.get("too_few_cases"):
+        render_too_few_cases_warning()
+        st.stop()
+
     pairwise = eval_data.get("pairwise_metrics", {})
     cluster = eval_data.get("cluster_metrics", {})
 
@@ -1198,6 +1468,13 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
+    before_after = DATA.get("before_after", {})
+    if before_after.get("too_few_cases"):
+        render_too_few_cases_warning()
+        st.stop()
+
     c_before, c_after = st.columns(2)
 
     with c_before:
@@ -1222,15 +1499,20 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
             </div>
         """, unsafe_allow_html=True)
 
+    filtered_cases = before_after.get("filtered_case_count", 5125)
+    filtered_events = before_after.get("filtered_event_count", 14384)
+    cases_str = "<5" if str(filtered_cases) == "<5" else f"{filtered_cases:,}"
+    events_str = "<5" if str(filtered_events) == "<5" else f"{filtered_events:,}"
+
     with c_after:
-        st.markdown("""
+        st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #8B1E3F; border-radius: 4px; padding: 20px; min-height: 460px;">
                 <div style="display: flex; align-items: center; margin-bottom: 12px;">
                     <span style="font-size: 1.25rem; margin-right: 8px;">✅</span>
                     <strong style="color: #8B1E3F; font-size: 1.15rem;">AFTER: Privacy-Preserving Linkage Pipeline</strong>
                 </div>
                 <ul style="color: #222222; line-height: 1.8; font-size: 0.92rem;">
-                    <li><strong>Unified Case Trajectories:</strong> 14,384 events stitched into 5,125 complete case journeys across all 5 institutional stages.</li>
+                    <li><strong>Unified Case Trajectories:</strong> {events_str} events stitched into {cases_str} complete case journeys across all 5 institutional stages.</li>
                     <li><strong>Pinpointed Systemic Leak Points:</strong>
                         <ul>
                             <li><strong>Rudrapur (D3):</strong> Forensic turnaround delay (3.19x multiplier) isolated as primary root cause of chargesheet stalling.</li>
@@ -1248,30 +1530,34 @@ elif PAGE == "⚖️ Before / After Policy Transformation":
 
     # Comparative Metric Deltas
     st.markdown("### 📊 Policy Insight Resolution: Siloed vs Linked")
-    comp_data = {
-        "Analytical Dimension": [
-            "Forensic Turnaround Visibility",
-            "Police Attrition Attribution",
-            "Cross-Stage Latency Quantification",
-            "Survivor Re-identification Risk",
-            "Statutory Compliance Auditing"
-        ],
-        "Siloed Status Quo (Before)": [
-            "Unknown (Lab internal metric only)",
-            "Assumed victim uncooperativeness",
-            "Impossible (Stages disconnected)",
-            "High (Unsanitized file sharing)",
-            "Anecdotal / Reactive"
-        ],
-        "Privacy Pipeline (After)": [
-            "137.5 days median in D3 (3.19x normal)",
-            "72.2% attrition drop-off in D6 (LP-02)",
-            "Exact IQR & P95 durations calculated",
-            "Zero PII + Laplace DP Noise Mask",
-            "Automated statutory benchmark tracking"
-        ]
-    }
-    st.table(pd.DataFrame(comp_data))
+    comp_table = before_after.get("comparative_table")
+    if comp_table:
+        st.dataframe(pd.DataFrame(comp_table), width="stretch")
+    else:
+        comp_data = {
+            "Analytical Dimension": [
+                "Forensic Turnaround Visibility",
+                "Police Attrition Attribution",
+                "Cross-Stage Latency Quantification",
+                "Survivor Re-identification Risk",
+                "Statutory Compliance Auditing"
+            ],
+            "Siloed Status Quo (Before)": [
+                "Unknown (Lab internal metric only)",
+                "Assumed victim uncooperativeness",
+                "Impossible (Stages disconnected)",
+                "High (Unsanitized file sharing)",
+                "Anecdotal / Reactive"
+            ],
+            "Privacy Pipeline (After)": [
+                "137.5 days median in D3 (3.19x normal)",
+                "72.2% attrition drop-off in D6 (LP-02)",
+                "Exact IQR & P95 durations calculated",
+                "Zero PII + Laplace DP Noise Mask",
+                "Automated statutory benchmark tracking"
+            ]
+        }
+        st.dataframe(pd.DataFrame(comp_data), width="stretch")
 
 
 # ==============================================================================
@@ -1289,8 +1575,19 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
         </div>
     """, unsafe_allow_html=True)
 
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
+
     priv_audit = DATA.get("privacy_audit", {})
     budget_sum = priv_audit.get("privacy_budget_summary", {})
+    live_budget = DATA.get("privacy_budget", {})
+    if live_budget and "remaining_epsilon" in live_budget:
+        budget_sum = {
+            "total_epsilon_allocated": live_budget.get("total_epsilon", budget_sum.get("total_epsilon_allocated", 10.0)),
+            "spent_epsilon": live_budget.get("spent_epsilon", budget_sum.get("spent_epsilon", 0.0)),
+            "remaining_epsilon": live_budget.get("remaining_epsilon", budget_sum.get("remaining_epsilon", 10.0)),
+            "composition_theorem": budget_sum.get("composition_theorem", "Sequential Composition"),
+            "budget_ledger_entries": live_budget.get("total_queries_executed", budget_sum.get("budget_ledger_entries", 0))
+        }
     k_eval = priv_audit.get("k_anonymity_evaluation", {})
 
     # Top KPI Budget Cards
@@ -1332,6 +1629,41 @@ elif PAGE == "🛡️ Survivor Privacy & DP Engine":
                 <div class="metric-delta">Verified: Zero Leaked Names/IDs</div>
             </div>
         """, unsafe_allow_html=True)
+
+    # Admin Privacy Budget Controls
+    if CURRENT_ROLE == "admin":
+        st.markdown("### ⚙️ Differential Privacy Budget Administration")
+        with st.container():
+            st.markdown("""
+                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 14px 18px; margin-bottom: 14px;">
+                    <strong style="color: #222222; font-size: 0.95rem;">Reset Privacy Budget</strong>
+                    <div style="color: #5F5F5F; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
+                        Reset or reconfigure the live differential privacy budget. Resetting restores query capacity and clears the dynamic query cache, enabling judges and reviewers to test analytical queries without interruption.
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            ac1, ac2, ac3 = st.columns([3, 3, 4])
+            with ac1:
+                admin_eps_target = st.number_input(
+                    "Total Epsilon Upper Bound (ε)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=float(budget_sum.get("total_epsilon_allocated", 10.0)),
+                    step=1.0,
+                    key="admin_page_reset_eps_input"
+                )
+            with ac2:
+                st.write("")
+                st.write("")
+                if st.button("🔄 Reset Privacy Budget", type="primary", key="admin_page_reset_budget_btn"):
+                    res = reset_privacy_budget(total_epsilon=admin_eps_target, token=st.session_state.get("token"))
+                    if res.get("message") or res.get("success"):
+                        st.session_state["privacy_budget_exhausted"] = False
+                        st.cache_data.clear()
+                        st.success(f"Differential privacy budget reset to {admin_eps_target:.2f} ε successfully.")
+                        st.rerun()
+                    else:
+                        st.error("Failed to reset privacy budget. Ensure admin privileges.")
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
@@ -1416,6 +1748,8 @@ elif PAGE == "📜 Statutory Policy Insights (TinyFish)":
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
     policy_cache = DATA.get("policy_context", {})
 
@@ -1503,6 +1837,8 @@ elif PAGE == "🧪 Case Simulator":
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
     st.markdown("""
         <div style="background: #FDF2F4; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 10px 14px; margin-bottom: 20px; font-size: 0.82rem; color: #8B1E3F;">
@@ -2008,6 +2344,8 @@ elif PAGE == "📋 Review Queue":
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    render_filter_badge(FILTER_DISTRICT, (FILTER_FROM, FILTER_TO), FILTER_STAGE, KPIS.get("epsilon_remaining_display"))
 
     st.warning("⚠️ **Strict Privacy Guardrail**: Direct personal identifiers (names, relatives, addresses) are suppressed. Only pseudonymized record identifiers, incident dates, and match probabilities are shown.")
 

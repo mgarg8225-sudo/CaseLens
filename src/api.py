@@ -46,6 +46,7 @@ from src.privacy import (
     apply_kanonymity_suppression,
     verify_zero_pii_leakage,
     evaluate_k_anonymity,
+    get_configured_total_budget,
 )
 from src.policy_context import (
     load_cache,
@@ -57,6 +58,16 @@ from src.policy_context import (
     FORBIDDEN_PII_PATTERNS,
 )
 from src.auth import auth_router
+from src.analytics import (
+    filter_event_log,
+    compute_filtered_summary,
+    compute_filtered_dp_funnel,
+    compute_filtered_bottlenecks,
+    compute_filtered_districts,
+    compute_filtered_evaluation,
+    compute_filtered_before_after,
+)
+
 
 
 STATUTORY_BENCHMARKS = {
@@ -158,7 +169,7 @@ class AggregateQueryRequest(BaseModel):
 
 
 class ResetBudgetRequest(BaseModel):
-    total_epsilon: float = Field(default=10.0, gt=0.0, le=50.0)
+    total_epsilon: Optional[float] = Field(default=None, gt=0.0, le=1000.0)
     total_delta: float = Field(default=1e-4, gt=0.0, le=1e-2)
 
 
@@ -277,7 +288,8 @@ class DataStore:
     """Loads and caches analytical & DP artifacts for the API service."""
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = data_dir
-        self.budget_tracker = PrivacyBudgetTracker(total_epsilon=10.0, total_delta=1e-4)
+        configured_eps = get_configured_total_budget()
+        self.budget_tracker = PrivacyBudgetTracker(total_epsilon=configured_eps, total_delta=1e-4)
         self.audit_logger = ApiAuditLogger(os.path.join(data_dir, "api_audit_log.json"))
         self.dp_funnel: Dict[str, Any] = {}
         self.dp_districts: Dict[str, Any] = {}
@@ -288,6 +300,8 @@ class DataStore:
         self.evaluation: Dict[str, Any] = {}
         self.journey: Dict[str, Any] = {}
         self.df_cases: Optional[pd.DataFrame] = None
+        self.df_events: Optional[pd.DataFrame] = None
+        self.filter_cache: Dict[str, Any] = {}
         self.load_data()
 
     def load_data(self):
@@ -344,11 +358,12 @@ class DataStore:
             with open(j_path, "r", encoding="utf-8") as f:
                 self.journey = json.load(f)
 
-        # 7. Reconstructed Events to Cases (for dynamic DP aggregation)
+        # 9. Reconstructed Events to Cases (for dynamic DP aggregation)
         ev_path = os.path.join(self.data_dir, "event_log.csv")
         if os.path.exists(ev_path):
             try:
-                df_ev = pd.read_csv(ev_path)
+                self.df_events = pd.read_csv(ev_path)
+                df_ev = self.df_events.copy()
                 df_ev["month"] = pd.to_datetime(df_ev["timestamp"]).dt.to_period("M").astype(str)
                 self.df_cases = df_ev.groupby("case_id").agg({
                     "district": "first",
@@ -358,6 +373,7 @@ class DataStore:
                 }).reset_index().rename(columns={"activity": "terminal_stage"})
             except Exception:
                 self.df_cases = None
+                self.df_events = None
 
 
 # Global DataStore instance
@@ -441,7 +457,15 @@ ALLOWED_POLICY_KEYS = {
     "LP-05-VICTIM-COMPENSATION-DELAY",
     "stage_name",
     "query_name",
-    "district_name"
+    "district_name",
+    "cached",
+    "too_few_cases",
+    "message",
+    "filtered_case_count",
+    "filtered_event_count",
+    "fir_to_chargesheet_rate_pct",
+    "attrition_drop_off_pct",
+    "comparative_table"
 }
 
 
@@ -487,6 +511,10 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     global DATA_STORE
     if DATA_STORE.data_dir != data_dir:
         DATA_STORE = DataStore(data_dir)
+    else:
+        configured_eps = get_configured_total_budget()
+        DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
+        DATA_STORE.filter_cache.clear()
 
     app = FastAPI(
         title="CaseLens - Privacy-Preserving Policy Analytics API",
@@ -499,6 +527,12 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc"
     )
+
+    @app.on_event("startup")
+    def on_startup():
+        configured_eps = get_configured_total_budget()
+        DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
+        DATA_STORE.filter_cache.clear()
 
     # CORS configuration
     app.add_middleware(
@@ -613,75 +647,191 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         })
 
     # ==========================================================================
+    # 8b. Server-Side Filter & Cache Helpers
+    # ==========================================================================
+
+    def is_baseline_filter(
+        district: Optional[str] = None,
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
+        stage: Optional[str] = None,
+        category: Optional[str] = None
+    ) -> bool:
+        d_base = district is None or str(district).strip() in ["", "All", "All Districts"]
+        s_base = stage is None or str(stage).strip() in ["", "All", "All Stages", "All Institutions"]
+        c_base = category is None or str(category).strip() in ["", "All", "All Categories"]
+        f_base = from_date is None or str(from_date).strip() in ["", "2022-12-31"]
+        t_base = to_date is None or str(to_date).strip() in ["", "2026-11-27"]
+        return d_base and s_base and c_base and f_base and t_base
+
+    def handle_filtered_query(
+        cache_prefix: str,
+        district: Optional[str],
+        from_date: Optional[str],
+        to_date: Optional[str],
+        stage: Optional[str],
+        category: Optional[str],
+        epsilon: float,
+        compute_fn: Any,
+        request: Request,
+        baseline_data: Any = None
+    ) -> Tuple[Any, float, bool]:
+        """
+        Returns (data, epsilon_cost, was_cached).
+        If query matches baseline filters, returns baseline_data with epsilon_cost.
+        If cached, returns cached data with epsilon_cost = 0.0 (no extra privacy budget spent!).
+        If uncached filtered query, spends epsilon, computes on filtered events, caches result.
+        """
+        norm_d = str(district).strip() if district else "ALL"
+        norm_f = str(from_date).strip() if from_date else "ALL"
+        norm_t = str(to_date).strip() if to_date else "ALL"
+        norm_s = str(stage).strip() if stage else "ALL"
+        norm_c = str(category).strip() if category else "ALL"
+        cache_key = f"{cache_prefix}|{norm_d}|{norm_f}|{norm_t}|{norm_s}|{norm_c}|{epsilon:.3f}"
+
+        if cache_key in DATA_STORE.filter_cache:
+            request.state.epsilon_spent = 0.0
+            return DATA_STORE.filter_cache[cache_key], 0.0, True
+
+        if is_baseline_filter(district, from_date, to_date, stage, category):
+            if DATA_STORE.budget_tracker.remaining_epsilon < (epsilon - 1e-9):
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Privacy budget exhausted: remaining {DATA_STORE.budget_tracker.remaining_epsilon:.3f} epsilon < requested {epsilon:.3f}."
+                )
+            DATA_STORE.filter_cache[cache_key] = baseline_data
+            request.state.epsilon_spent = epsilon
+            return baseline_data, epsilon, False
+
+        # Cache miss: verify budget and compute
+        if DATA_STORE.budget_tracker.remaining_epsilon < (epsilon - 1e-9):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Privacy budget exhausted: remaining {DATA_STORE.budget_tracker.remaining_epsilon:.3f} epsilon < requested {epsilon:.3f}."
+            )
+
+        df_ev = DATA_STORE.df_events
+        if df_ev is None and os.path.exists(os.path.join(DATA_STORE.data_dir, "event_log.csv")):
+            df_ev = pd.read_csv(os.path.join(DATA_STORE.data_dir, "event_log.csv"))
+            DATA_STORE.df_events = df_ev
+
+        df_filtered = filter_event_log(
+            df_ev,
+            district=district,
+            from_date=from_date,
+            to_date=to_date,
+            stage=stage,
+            category=category
+        )
+
+        res = compute_fn(df_filtered)
+        DATA_STORE.filter_cache[cache_key] = res
+        request.state.epsilon_spent = epsilon
+        return res, epsilon, False
+
+    # ==========================================================================
     # 9. Endpoints: Viewer+ (Viewer, Analyst, Admin)
     # ==========================================================================
 
     @app.get("/api/v1/summary", tags=["Aggregates (Viewer+)"])
     def get_executive_summary(
         request: Request,
+        district: Optional[str] = Query(None, description="District filter (e.g. 'D3_Rudrapur' or 'All')"),
+        from_date: Optional[str] = Query(None, description="From inception date YYYY-MM-DD"),
+        to_date: Optional[str] = Query(None, description="To inception date YYYY-MM-DD"),
+        stage: Optional[str] = Query(None, description="Stage presence filter (e.g. 'Police FIR' or 'All')"),
+        category: Optional[str] = Query(None, description="Crime category filter (e.g. 'trafficking' or 'All')"),
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         High-level pipeline health and district vulnerability summary.
-        Deducts epsilon = 0.05 from privacy budget.
+        Dynamically recomputed server-side for selected global filters.
+        Deducts epsilon = 0.05 from privacy budget (cached requests spend 0.0).
         """
         eps = 0.05
-        request.state.epsilon_spent = eps
+        data, eps_spent, cached = handle_filtered_query(
+            "summary", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_summary(df, baseline_summary=DATA_STORE.summary, k_anonymity=5),
+            request, baseline_data=DATA_STORE.summary
+        )
         payload = {
             "query_type": "executive_summary",
-            "data": DATA_STORE.summary,
+            "data": data,
             "privacy_metadata": {
-                "epsilon_cost": eps,
-                "remaining_budget": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4)
+                "epsilon_cost": eps_spent,
+                "remaining_budget": round(DATA_STORE.budget_tracker.remaining_epsilon - (eps_spent if not cached else 0.0), 4),
+                "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="summary_aggregate")
+        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="summary_aggregate")
 
     @app.get("/api/v1/funnel", tags=["Aggregates (Viewer+)"])
     def get_funnel_analytics(
         request: Request,
+        district: Optional[str] = Query(None),
+        from_date: Optional[str] = Query(None),
+        to_date: Optional[str] = Query(None),
+        stage: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),
+        epsilon: float = Query(0.10, ge=0.01, le=1.0),
+        k_threshold: int = Query(5, ge=3, le=20),
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Differentially Private 5-stage case attrition funnel.
+        Dynamically recomputed server-side for selected global filters.
         Returns Laplace DP noisy counts, DP retention %, and 95% Confidence Bounds.
-        Deducts epsilon = 0.10 from privacy budget.
         """
-        eps = 0.10
-        request.state.epsilon_spent = eps
+        eps = epsilon
+        data, eps_spent, cached = handle_filtered_query(
+            f"funnel_k{k_threshold}", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_dp_funnel(df, baseline_funnel=DATA_STORE.dp_funnel, epsilon_per_stage=eps, k_threshold=k_threshold),
+            request, baseline_data=DATA_STORE.dp_funnel
+        )
         payload = {
             "query_type": "funnel_analytics",
-            "funnel": DATA_STORE.dp_funnel,
+            "funnel": data,
             "privacy_protection": {
                 "mechanism": "Laplace Differential Privacy (Delta f = 1) + Small-Cell k-Anonymity Suppression",
-                "k_threshold": 5,
-                "epsilon_spent": eps,
-                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4)
+                "k_threshold": k_threshold,
+                "epsilon_spent": eps_spent,
+                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - (eps_spent if not cached else 0.0), 4),
+                "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="funnel_aggregate")
+        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="funnel_aggregate")
 
     @app.get("/api/v1/districts", tags=["Aggregates (Viewer+)"])
     def get_district_leakage(
         request: Request,
+        district: Optional[str] = Query(None),
+        from_date: Optional[str] = Query(None),
+        to_date: Optional[str] = Query(None),
+        stage: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Differentially Private district-level leakage metrics (D1-D8),
         systemic leak codes (LP-01, LP-02, LP-03), and vulnerability scores.
-        Deducts epsilon = 0.10 from privacy budget.
+        Dynamically recomputed server-side for selected global filters.
         """
         eps = 0.10
-        request.state.epsilon_spent = eps
+        data, eps_spent, cached = handle_filtered_query(
+            "districts", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_districts(df, baseline_districts=DATA_STORE.dp_districts, k_threshold=5),
+            request, baseline_data=DATA_STORE.dp_districts
+        )
         payload = {
             "query_type": "district_leakage_diagnostics",
-            "district_analytics": DATA_STORE.dp_districts,
+            "district_analytics": data,
             "privacy_metadata": {
-                "epsilon_spent": eps,
-                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4)
+                "epsilon_spent": eps_spent,
+                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - (eps_spent if not cached else 0.0), 4),
+                "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="district_aggregate")
+        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="district_aggregate")
 
     @app.get("/api/v1/policy-context", tags=["Aggregates (Viewer+)"])
     def get_policy_context(
@@ -714,22 +864,74 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
 
     @app.get("/api/v1/evaluation", tags=["Aggregates (Viewer+)"])
     def get_evaluation_metrics(
+        request: Request,
+        district: Optional[str] = Query(None),
+        from_date: Optional[str] = Query(None),
+        to_date: Optional[str] = Query(None),
+        stage: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Probabilistic record linkage evaluation metrics,
         precision-recall curve data, and cluster-level purity/BCubed F1 benchmarks.
+        Dynamically scaled/recomputed server-side for selected global filters.
         Zero PII.
         """
+        eps = 0.0
         eval_safe = {
             k: v for k, v in DATA_STORE.evaluation.items()
             if k not in ["error_diagnostics", "false_positives_sample", "false_negatives_sample"]
         }
+        data, eps_spent, cached = handle_filtered_query(
+            "evaluation", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_evaluation(df, baseline_evaluation=eval_safe, k_threshold=5),
+            request, baseline_data=eval_safe
+        )
         payload = {
-            "evaluation": eval_safe,
-            "zero_pii_verified": True
+            "evaluation": data,
+            "zero_pii_verified": True,
+            "privacy_metadata": {
+                "epsilon_spent": 0.0,
+                "remaining_budget": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+                "cached": cached
+            }
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="evaluation_metrics")
+
+    @app.get("/api/v1/before-after", tags=["Aggregates (Viewer+)"])
+    def get_before_after_insights(
+        request: Request,
+        district: Optional[str] = Query(None),
+        from_date: Optional[str] = Query(None),
+        to_date: Optional[str] = Query(None),
+        stage: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Dynamic Before vs After policy transformation insights and comparative metrics.
+        Dynamically recomputed server-side for selected global filters.
+        Zero PII.
+        """
+        eps = 0.0
+        base_before_after = compute_filtered_before_after(DATA_STORE.df_events, k_threshold=5) if DATA_STORE.df_events is not None else {}
+        data, eps_spent, cached = handle_filtered_query(
+            "before_after", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_before_after(df, k_threshold=5),
+            request, baseline_data=base_before_after
+        )
+        payload = {
+            "query_type": "before_after_insights",
+            "data": data,
+            "zero_pii_verified": True,
+            "privacy_metadata": {
+                "epsilon_spent": 0.0,
+                "remaining_budget": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+                "cached": cached
+            }
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="before_after_insights")
 
     @app.get("/api/v1/journey", tags=["Aggregates (Viewer+)"])
     def get_journey_metrics(
@@ -746,30 +948,41 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="journey_metrics")
 
     # ==========================================================================
-    # 10. Endpoints: Analyst+ (Analyst, Admin)
+    # 10. Endpoints: Analyst+ (Analyst, Admin) & Deep Analytics
     # ==========================================================================
 
     @app.get("/api/v1/bottlenecks", tags=["Deep Analytics (Analyst+)"])
     def get_bottlenecks(
         request: Request,
+        district: Optional[str] = Query(None),
+        from_date: Optional[str] = Query(None),
+        to_date: Optional[str] = Query(None),
+        stage: Optional[str] = Query(None),
+        category: Optional[str] = Query(None),
         user: UserContext = Depends(require_role(Role.ANALYST))
     ):
         """
         Stage transition duration percentiles (median, IQR, p90, p95)
         and statutory latency compliance percentages.
-        Deducts epsilon = 0.15 from privacy budget.
+        Dynamically recomputed server-side for selected global filters.
+        Deducts epsilon = 0.15 from privacy budget (cached requests spend 0.0).
         """
         eps = 0.15
-        request.state.epsilon_spent = eps
+        data, eps_spent, cached = handle_filtered_query(
+            "bottlenecks", district, from_date, to_date, stage, category, eps,
+            lambda df: compute_filtered_bottlenecks(df, baseline_bottlenecks=DATA_STORE.bottlenecks, k_threshold=5),
+            request, baseline_data=DATA_STORE.bottlenecks
+        )
         payload = {
             "query_type": "duration_bottleneck_percentiles",
-            "transitions": DATA_STORE.bottlenecks,
+            "transitions": data,
             "privacy_metadata": {
-                "epsilon_spent": eps,
-                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4)
+                "epsilon_spent": eps_spent,
+                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - (eps_spent if not cached else 0.0), 4),
+                "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="bottlenecks_aggregate")
+        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="bottlenecks_aggregate")
 
     @app.get("/api/v1/categories", tags=["Deep Analytics (Analyst+)"])
     def get_category_disparities(
@@ -778,23 +991,45 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     ):
         """
         Crime category disparities, step conversion attrition, and statutory volume.
-        Deducts epsilon = 0.10 from privacy budget.
+        Repeated identical calls are served from cache and do NOT spend privacy budget.
         """
+        cache_key = "category_disparities_baseline"
+        if cache_key in DATA_STORE.filter_cache:
+            request.state.epsilon_spent = 0.0
+            payload = {
+                "query_type": "category_disparities",
+                "categories": DATA_STORE.category_disparities,
+                "privacy_metadata": {
+                    "epsilon_spent": 0.0,
+                    "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+                    "cached": True
+                }
+            }
+            return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="category_aggregate")
+
         eps = 0.10
+        if DATA_STORE.budget_tracker.remaining_epsilon < (eps - 1e-9):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Privacy budget exhausted: remaining {DATA_STORE.budget_tracker.remaining_epsilon:.3f} epsilon < requested {eps:.3f}."
+            )
+
+        DATA_STORE.filter_cache[cache_key] = True
         request.state.epsilon_spent = eps
         payload = {
             "query_type": "category_disparities",
             "categories": DATA_STORE.category_disparities,
             "privacy_metadata": {
                 "epsilon_spent": eps,
-                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4)
+                "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon - eps, 4),
+                "cached": False
             }
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="category_aggregate")
 
-    @app.get("/api/v1/privacy/budget", tags=["Privacy Engine (Analyst+)"])
+    @app.get("/api/v1/privacy/budget", tags=["Privacy Engine (Viewer+)"])
     def get_privacy_budget(
-        user: UserContext = Depends(require_role(Role.ANALYST))
+        user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Returns global privacy budget status and consumption ledger under Sequential Composition.
@@ -864,6 +1099,17 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 if fk in df.columns:
                     df = df[df[fk] == fv]
 
+        # Check cache before allocating budget
+        filters_str = json.dumps(request_body.filters or {}, sort_keys=True)
+        cache_key = f"query_agg|{dim}|{request_body.metric}|{filters_str}|{request_body.epsilon:.3f}|{request_body.k_threshold}"
+
+        if cache_key in DATA_STORE.filter_cache:
+            request.state.epsilon_spent = 0.0
+            cached_data = dict(DATA_STORE.filter_cache[cache_key])
+            cached_data["epsilon_consumed"] = 0.0
+            cached_data["cached"] = True
+            return sanitize_and_verify_payload(cached_data, epsilon_cost=0.0, query_id="dynamic_aggregate")
+
         # Allocate budget
         request.state.epsilon_spent = request_body.epsilon
         try:
@@ -906,8 +1152,10 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             "filters_applied": request_body.filters,
             "k_threshold": k,
             "epsilon_consumed": request_body.epsilon,
+            "cached": False,
             "results": noisy_aggregates
         }
+        DATA_STORE.filter_cache[cache_key] = payload
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0)
 
     SIMULATOR_SAFE_FIELDS = {
@@ -1080,7 +1328,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
 
     @app.post("/api/v1/privacy/budget/reset", tags=["Admin Controls"])
     def reset_privacy_budget(
-        request_body: ResetBudgetRequest,
+        request_body: Optional[ResetBudgetRequest] = None,
         user: UserContext = Depends(require_role(Role.ADMIN))
     ):
         """
@@ -1088,15 +1336,19 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         Logs the administrative action into the audit ledger.
         Accessible exclusively to Administrators.
         """
+        req_eps = request_body.total_epsilon if request_body else None
+        req_delta = request_body.total_delta if request_body else 1e-4
+        new_eps = req_eps if req_eps is not None else get_configured_total_budget()
         DATA_STORE.budget_tracker = PrivacyBudgetTracker(
-            total_epsilon=request_body.total_epsilon,
-            total_delta=request_body.total_delta
+            total_epsilon=new_eps,
+            total_delta=req_delta
         )
+        DATA_STORE.filter_cache.clear()
         payload = {
             "message": "Privacy budget successfully reset by Administrator.",
-            "new_total_epsilon": request_body.total_epsilon,
-            "new_total_delta": request_body.total_delta,
-            "remaining_epsilon": request_body.total_epsilon,
+            "new_total_epsilon": new_eps,
+            "new_total_delta": req_delta,
+            "remaining_epsilon": new_eps,
             "reset_timestamp": datetime.now(timezone.utc).isoformat()
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="budget_reset")
@@ -1112,8 +1364,16 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         - Adversarial singling-out and differencing attack simulations.
         Accessible exclusively to Administrators.
         """
+        report = dict(DATA_STORE.privacy_report)
+        report["privacy_budget_summary"] = {
+            "total_epsilon_allocated": round(DATA_STORE.budget_tracker.total_epsilon, 4),
+            "spent_epsilon": round(DATA_STORE.budget_tracker.spent_epsilon, 4),
+            "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+            "composition_theorem": "Sequential Composition (sum(epsilon_i) <= total_epsilon)",
+            "budget_ledger_entries": len(DATA_STORE.budget_tracker.get_ledger()),
+        }
         return sanitize_and_verify_payload(
-            DATA_STORE.privacy_report,
+            report,
             epsilon_cost=0.0,
             query_id="privacy_diagnostics"
         )
