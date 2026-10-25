@@ -403,3 +403,53 @@ def test_review_queue_and_audit_event_endpoints(api_client):
     )
     assert log_resp.status_code == 200
     assert log_resp.json()["status"] == "recorded"
+
+
+def test_case_explorer_api_endpoints(api_client):
+    """
+    Verifies Case Explorer FastAPI endpoints:
+    - GET /api/v1/cases/examples
+    - GET /api/v1/cases/random
+    - GET /api/v1/cases/{case_id}
+    - Role-based server-side masking vs pseudonymisation
+    """
+    viewer_headers = {"X-API-Key": "viewer-key-leaky-2026"}
+    analyst_headers = {"X-API-Key": "analyst-key-leaky-2026"}
+
+    # 1. GET /api/v1/cases/examples
+    ex_resp = api_client.get("/api/v1/cases/examples", headers=viewer_headers)
+    assert ex_resp.status_code == 200
+    ex_data = ex_resp.json()
+    assert "examples" in ex_data
+    assert ex_data["total_examples"] == 7
+    assert ex_data["synthetic_data"] is True
+
+    # 2. GET /api/v1/cases/{case_id} with Viewer role (Masked names)
+    c_resp_viewer = api_client.get("/api/v1/cases/clean_match", headers=viewer_headers)
+    assert c_resp_viewer.status_code == 200
+    c_data_v = c_resp_viewer.json()["case"]
+    assert c_data_v["case_id"] == "clean_match"
+    assert c_data_v["role_view"] == "masked"
+    assert "*" in c_data_v["records"][0]["name"]
+    assert "Shashi" not in c_data_v["records"][0]["name"]
+    assert "one_line_verdict" in c_data_v
+    assert "timeline" in c_data_v
+    assert len(c_data_v["records"]) == 5
+
+    # 3. GET /api/v1/cases/{case_id} with Analyst role (Pseudonymised IDs)
+    c_resp_analyst = api_client.get("/api/v1/cases/clean_match", headers=analyst_headers)
+    assert c_resp_analyst.status_code == 200
+    c_data_a = c_resp_analyst.json()["case"]
+    assert c_data_a["role_view"] == "pseudonymised"
+    assert c_data_a["records"][0]["name"].startswith("SUBJ-")
+    assert "Shashi" not in c_data_a["records"][0]["name"]
+
+    # 4. GET /api/v1/cases/random
+    rnd_resp = api_client.get("/api/v1/cases/random", headers=viewer_headers)
+    assert rnd_resp.status_code == 200
+    rnd_case = rnd_resp.json()["case"]
+    assert rnd_case["synthetic_data"] is True
+    assert rnd_case["synthetic_label"] == "All data shown is synthetic. No real person or case."
+    assert "pairwise_results" in rnd_case
+    assert "timeline" in rnd_case
+

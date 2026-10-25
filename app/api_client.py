@@ -156,7 +156,8 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🔻 Funnel with Uncertainty Ranges",
         "⏱️ Duration Bottlenecks & Latency",
         "🔗 Linkage Quality & Evaluation",
-        "📜 Statutory Policy Insights (TinyFish)"
+        "📜 Statutory Policy Insights (TinyFish)",
+        "🔍 Case Explorer"
     ],
     "analyst": [
         "📊 Executive Overview",
@@ -166,7 +167,8 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "⚖️ Before / After Policy Transformation",
         "🛡️ Survivor Privacy & DP Engine",
         "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator"
+        "🧪 Case Simulator",
+        "🔍 Case Explorer"
     ],
     "admin": [
         "📊 Executive Overview",
@@ -177,6 +179,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🛡️ Survivor Privacy & DP Engine",
         "📜 Statutory Policy Insights (TinyFish)",
         "🧪 Case Simulator",
+        "🔍 Case Explorer",
         "📋 Review Queue",
         "📜 Audit Log"
     ]
@@ -617,6 +620,72 @@ def run_simulator(
     except Exception as exc:
         _handle_request_error(exc, url)
     return {}
+
+
+# ==============================================================================
+# 3b. Case Explorer Endpoints (Viewer, Analyst, Admin)
+# ==============================================================================
+
+def get_case_examples(token: Optional[str] = None, timeout: int = 10) -> List[Dict[str, Any]]:
+    """Retrieves curated judicial benchmark examples (GET /api/v1/cases/examples)."""
+    url = f"{get_api_base_url()}/api/v1/cases/examples"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            body = resp.json()
+            return body.get("examples", [])
+    except Exception as exc:
+        _handle_request_error(exc, url)
+
+    # Local fallback
+    try:
+        from src.case_explorer import get_case_explorer_service
+        return get_case_explorer_service().get_curated_examples_summary()
+    except Exception:
+        return []
+
+
+def get_case_detail(case_id: str, token: Optional[str] = None, timeout: int = 15) -> Dict[str, Any]:
+    """Retrieves full case details and reconstructed trajectory (GET /api/v1/cases/{case_id})."""
+    url = f"{get_api_base_url()}/api/v1/cases/{case_id}"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            body = resp.json()
+            return body.get("case", body)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+
+    # Local fallback
+    try:
+        from src.case_explorer import get_case_explorer_service
+        # Default role viewer for fallback if token not provided
+        role = "analyst" if token in ["analyst", "admin"] else "viewer"
+        return get_case_explorer_service().build_case_explorer_data(case_id, role=role)
+    except Exception:
+        return {}
+
+
+def get_random_case(token: Optional[str] = None, timeout: int = 15) -> Dict[str, Any]:
+    """Picks a random case from the generated dataset (GET /api/v1/cases/random)."""
+    url = f"{get_api_base_url()}/api/v1/cases/random"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            body = resp.json()
+            return body.get("case", body)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+
+    # Local fallback
+    try:
+        from src.case_explorer import get_case_explorer_service
+        svc = get_case_explorer_service()
+        rand_id = svc.get_random_case_id()
+        role = "analyst" if token in ["analyst", "admin"] else "viewer"
+        return svc.build_case_explorer_data(rand_id, role=role)
+    except Exception:
+        return {}
 
 
 # ==============================================================================

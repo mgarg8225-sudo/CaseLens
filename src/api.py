@@ -968,6 +968,91 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         )
 
     # ==========================================================================
+    # 10b. Endpoints: Case Explorer (Viewer, Analyst, Admin with RBAC Masking)
+    # ==========================================================================
+
+    CASE_EXPLORER_SAFE_FIELDS = {
+        "name", "guardian", "relative_name", "full_name",
+        "records", "evidence", "pairwise_results", "examples",
+        "timeline_steps", "steps", "bottlenecks", "elapsed_days",
+        "category", "details", "notes", "dob"
+    }
+
+    @app.get("/api/v1/cases/examples", tags=["Case Explorer"])
+    def get_case_examples(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Curated benchmark examples for end-to-end case exploration:
+        clean match, spelling variants, uncertain pair, similar names kept apart,
+        missed link, District 3 forensic delay, District 6 chargesheet drop-off.
+        Accessible to Viewers, Analysts, and Administrators.
+        """
+        from src.case_explorer import get_case_explorer_service
+        svc = get_case_explorer_service()
+        examples = svc.get_curated_examples_summary()
+        payload = {
+            "examples": examples,
+            "total_examples": len(examples),
+            "synthetic_data": True,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=0.0,
+            query_id="case_explorer_examples",
+            allowed_fields=CASE_EXPLORER_SAFE_FIELDS
+        )
+
+    @app.get("/api/v1/cases/random", tags=["Case Explorer"])
+    def get_random_case_endpoint(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Picks a random case from the 5,000 generated synthetic multi-agency dataset
+        and returns its end-to-end fragmented records, pairwise scoring, and journey timeline.
+        Enforces server-side RBAC: Viewers receive masked names; Analysts/Admins receive pseudonymised IDs.
+        """
+        from src.case_explorer import get_case_explorer_service
+        svc = get_case_explorer_service()
+        rand_id = svc.get_random_case_id()
+        case_data = svc.build_case_explorer_data(rand_id, role=user.role.value)
+        payload = {
+            "case": case_data,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=0.0,
+            query_id="case_explorer_random",
+            allowed_fields=CASE_EXPLORER_SAFE_FIELDS
+        )
+
+    @app.get("/api/v1/cases/{case_id}", tags=["Case Explorer"])
+    def get_case_by_id(
+        case_id: str,
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Retrieves end-to-end multi-agency records, pairwise match probabilities,
+        reconstructed journey timeline with elapsed days, and one-line verdict.
+        Enforces server-side RBAC: Viewers receive masked names; Analysts/Admins receive pseudonymised IDs.
+        """
+        from src.case_explorer import get_case_explorer_service
+        svc = get_case_explorer_service()
+        case_data = svc.build_case_explorer_data(case_id, role=user.role.value)
+        payload = {
+            "case": case_data,
+            "zero_pii_verified": True
+        }
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=0.0,
+            query_id="case_explorer_detail",
+            allowed_fields=CASE_EXPLORER_SAFE_FIELDS
+        )
+
+    # ==========================================================================
     # 11. Endpoints: Admin Only
     # ==========================================================================
 

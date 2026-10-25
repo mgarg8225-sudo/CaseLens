@@ -135,12 +135,13 @@ def test_viewer_rbac_permissions():
     Overview, Funnel, Bottlenecks, Linkage Quality, Policy Insights.
     Viewer CANNOT access Case Simulator, Review Queue, or Audit Log.
     """
-    # Allowed aggregate pages
+    # Allowed aggregate pages & Case Explorer
     assert check_user_permission("viewer", "📊 Executive Overview") is True
     assert check_user_permission("viewer", "🔻 Funnel with Uncertainty Ranges") is True
     assert check_user_permission("viewer", "⏱️ Duration Bottlenecks & Latency") is True
     assert check_user_permission("viewer", "🔗 Linkage Quality & Evaluation") is True
     assert check_user_permission("viewer", "📜 Statutory Policy Insights (TinyFish)") is True
+    assert check_user_permission("viewer", "🔍 Case Explorer") is True
 
     # Forbidden pages for viewer
     assert check_user_permission("viewer", "🧪 Case Simulator") is False
@@ -150,11 +151,12 @@ def test_viewer_rbac_permissions():
 
 def test_analyst_rbac_permissions():
     """
-    Verifies analyst can access viewer pages + Case Simulator,
+    Verifies analyst can access viewer pages + Case Simulator + Case Explorer,
     but CANNOT access admin-only Review Queue or Audit Log.
     """
     assert check_user_permission("analyst", "📊 Executive Overview") is True
     assert check_user_permission("analyst", "🧪 Case Simulator") is True
+    assert check_user_permission("analyst", "🔍 Case Explorer") is True
     assert check_user_permission("analyst", "⚖️ Before / After Policy Transformation") is True
     assert check_user_permission("analyst", "🛡️ Survivor Privacy & DP Engine") is True
 
@@ -167,6 +169,7 @@ def test_admin_rbac_permissions():
     """Verifies admin has full access to all pages including Review Queue and Audit Log."""
     assert check_user_permission("admin", "📊 Executive Overview") is True
     assert check_user_permission("admin", "🧪 Case Simulator") is True
+    assert check_user_permission("admin", "🔍 Case Explorer") is True
     assert check_user_permission("admin", "📋 Review Queue") is True
     assert check_user_permission("admin", "📜 Audit Log") is True
 

@@ -683,7 +683,8 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🔻 Funnel with Uncertainty Ranges",
         "⏱️ Duration Bottlenecks & Latency",
         "🔗 Linkage Quality & Evaluation",
-        "📜 Statutory Policy Insights (TinyFish)"
+        "📜 Statutory Policy Insights (TinyFish)",
+        "🔍 Case Explorer"
     ],
     "analyst": [
         "📊 Executive Overview",
@@ -693,7 +694,8 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "⚖️ Before / After Policy Transformation",
         "🛡️ Survivor Privacy & DP Engine",
         "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator"
+        "🧪 Case Simulator",
+        "🔍 Case Explorer"
     ],
     "admin": [
         "📊 Executive Overview",
@@ -704,6 +706,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🛡️ Survivor Privacy & DP Engine",
         "📜 Statutory Policy Insights (TinyFish)",
         "🧪 Case Simulator",
+        "🔍 Case Explorer",
         "📋 Review Queue",
         "📜 Audit Log"
     ]

@@ -46,6 +46,9 @@ from app.api_client import (
     get_journey,
     get_simulator_scenarios,
     run_simulator,
+    get_case_examples,
+    get_case_detail,
+    get_random_case,
     get_review_queue,
     get_audit_logs,
     log_audit_event,
@@ -1705,6 +1708,285 @@ elif PAGE == "🧪 Case Simulator":
                         st.markdown(f"- {st_icon} **{ev['field']}** ({ev['weight']:+.2f}): {ev['detail']}")
         else:
             st.info("No pairwise combinations available for single record.")
+
+
+
+# ==============================================================================
+# PAGE 8b: 🔍 Case Explorer (End-to-End Synthetic Case Trajectories)
+# ==============================================================================
+
+elif PAGE == "🔍 Case Explorer":
+    st.markdown("""
+        <div class="hero-banner">
+            <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">Institutional Record Linkage & Trajectory Adjudication</div>
+            <div class="hero-title">Case Explorer: End-to-End Multi-Agency Trajectories</div>
+            <div class="hero-subtitle">
+                Judicial inspection of synthetic multi-agency records across police, hospital, forensic, prosecution, and court.
+                Examines fragmented agency inputs, pairwise Fellegi-Sunter scoring reasons, and reconstructed journey timelines with stage-to-stage elapsed days.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Mandatory Synthetic Data Notice (Exact user specification)
+    st.markdown("""
+        <div style="background: #FDF2F4; border: 1px solid #E8B4BC; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 12px 16px; margin-bottom: 20px; font-size: 0.88rem; color: #8B1E3F;">
+            <strong>⚠️ All data shown is synthetic. No real person or case.</strong><br/>
+            <span style="font-size: 0.80rem; color: #5F5F5F;">
+                All agency records, person names, relatives, dates, and identifiers displayed here are purely synthetic and generated for institutional pipeline demonstration.
+                Probabilistic linkage scores reflect algorithmic model outputs and do NOT constitute judicial determinations or legal findings. Never stores data.
+            </span>
+        </div>
+    """, unsafe_allow_html=True)
+
+    active_token = st.session_state.get("token")
+
+    # Fetch curated examples via FastAPI endpoint
+    curated_list = get_case_examples(token=active_token)
+    if not curated_list:
+        curated_list = [
+            {"id": "clean_match", "title": "1. Clean Match: Full 5-Stage Institutional Journey", "category": "Baseline Linkage"},
+            {"id": "spelling_variants", "title": "2. Spelling Variants: Phonetic & Dialectal Invariance", "category": "Algorithmic Robustness"},
+            {"id": "uncertain_review", "title": "3. Uncertain Pair: Routed to Human Review Queue", "category": "Human-in-the-Loop Safeguard"},
+            {"id": "similar_names_kept_apart", "title": "4. False-Link Protection: Similar Names Correctly Kept Apart", "category": "False Positive Defense"},
+            {"id": "missed_link", "title": "5. Missed Link: Data Fragmentation Caused False Negative", "category": "Pipeline Sensitivity"},
+            {"id": "district_3_forensic_delay", "title": "6. District 3: Severe Forensic Laboratory Latency Bottleneck", "category": "Systemic Bottleneck"},
+            {"id": "district_6_chargesheet_drop", "title": "7. District 6: Police-to-Prosecution Chargesheet Drop-Off", "category": "Policy Attrition Leak"}
+        ]
+
+    # Initialize session state for selected case
+    if "explorer_case_id" not in st.session_state:
+        st.session_state["explorer_case_id"] = "clean_match"
+
+    # Top Control Bar: Curated Selector & Random Case Button
+    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2.5, 1.2, 1.3], gap="medium")
+
+    example_titles = [f"{ex['title']}" for ex in curated_list]
+    example_ids = [ex["id"] for ex in curated_list]
+
+    current_id = st.session_state.get("explorer_case_id", "clean_match")
+    default_idx = example_ids.index(current_id) if current_id in example_ids else 0
+
+    with ctrl_col1:
+        chosen_title = st.selectbox(
+            "Select Curated Judicial Example",
+            options=example_titles,
+            index=default_idx,
+            help="Choose from 7 curated institutional benchmark scenarios."
+        )
+        selected_example_id = example_ids[example_titles.index(chosen_title)]
+        if selected_example_id != st.session_state.get("explorer_case_id") and not st.session_state.get("_random_case_clicked"):
+            st.session_state["explorer_case_id"] = selected_example_id
+
+    with ctrl_col2:
+        custom_input = st.text_input(
+            "Or Case ID from Dataset",
+            value=st.session_state.get("explorer_case_id", "") if str(st.session_state.get("explorer_case_id", "")).startswith("CASE-") else "",
+            placeholder="e.g. CASE-00042",
+            help="Enter any synthetic case ID from the 5,000 generated cases."
+        )
+        if custom_input and custom_input.strip() and custom_input.strip() != st.session_state.get("explorer_case_id"):
+            st.session_state["explorer_case_id"] = custom_input.strip()
+            st.session_state["_random_case_clicked"] = False
+
+    with ctrl_col3:
+        st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+        if st.button("🎲 Random Case", key="btn_random_case", width="stretch", help="Picks any case at random from the 5,000 generated synthetic dataset cases."):
+            rand_case = get_random_case(token=active_token)
+            if rand_case and "case_id" in rand_case:
+                st.session_state["explorer_case_id"] = rand_case["case_id"]
+                st.session_state["_random_case_clicked"] = True
+                st.rerun()
+
+    # Reset random flag if user switched selectbox
+    if st.session_state.get("_random_case_clicked") and st.session_state.get("explorer_case_id") in example_ids:
+        st.session_state["_random_case_clicked"] = False
+
+    active_case_id = st.session_state.get("explorer_case_id", "clean_match")
+
+    # Fetch Case Details via FastAPI Endpoint
+    with st.spinner(f"Loading synthetic case trajectory for '{active_case_id}'..."):
+        case_data = get_case_detail(active_case_id, token=active_token)
+
+    if not case_data or "records" not in case_data:
+        st.error(f"❌ Could not retrieve case data for ID '{active_case_id}'. Please select an example from the dropdown.")
+        st.stop()
+
+    # Role Enforcement Banner
+    role_view = case_data.get("role_view", "masked")
+    role_badge_text = "🔒 Masked Personal Names (Viewer Role)" if role_view == "masked" else "🛡️ Pseudonymised Identifiers (Analyst/Admin Role)"
+    st.markdown(f"""
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #F8F7F4; border: 1px solid #E3DED6; border-radius: 4px; padding: 8px 14px; margin-bottom: 16px; font-size: 0.82rem;">
+            <div>
+                <strong style="color: #222222;">Inspecting Case:</strong> <code style="font-weight: 600; color: #8B1E3F;">{case_data['case_id']}</code> &nbsp;
+                <span style="color: #5F5F5F;">| District: <strong>{case_data.get('district', 'N/A')}</strong> | Category: <strong>{case_data.get('category', 'General')}</strong></span>
+            </div>
+            <div style="font-weight: 600; color: #5F5F5F;">
+                {role_badge_text}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # ==========================================================================
+    # Requirement (d): One-Line Verdict Banner
+    # ==========================================================================
+    v_type = case_data.get("verdict_type", "neutral")
+    v_palette = {
+        "success": ("#FDF2F4", "#8B1E3F", "✅", "#8B1E3F"),
+        "warning": ("#FEF3C7", "#92400E", "⚠️", "#B45309"),
+        "danger": ("#FEE2E2", "#991B1B", "🛡️", "#DC2626"),
+        "review": ("#FFFBEB", "#B45309", "📋", "#D97706"),
+        "neutral": ("#F0ECE5", "#222222", "ℹ️", "#5F5F5F")
+    }
+    bg_c, text_c, icon, border_c = v_palette.get(v_type, ("#F0ECE5", "#222222", "ℹ️", "#5F5F5F"))
+
+    st.markdown(f"""
+        <div style="background: {bg_c}; border: 1px solid {border_c}; border-left: 6px solid {border_c}; border-radius: 4px; padding: 14px 18px; margin-bottom: 20px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; font-weight: 700; color: {text_c}; letter-spacing: 0.05em; margin-bottom: 2px;">
+                Judicial Verdict & Trajectory Assessment
+            </div>
+            <div style="font-size: 1.12rem; font-weight: 700; color: {text_c}; line-height: 1.4;">
+                {icon} {case_data.get('one_line_verdict', 'Case Trajectory Evaluated')}
+            </div>
+            <div style="font-size: 0.82rem; color: #4A4A4A; margin-top: 6px; line-height: 1.4;">
+                {case_data.get('why', '')}
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Layout: (a) Fragmented Records on Left, (c) Journey & (b) Pairwise Evidence on Right
+    col_records, col_timeline = st.columns([1.1, 1.25], gap="large")
+
+    # ==========================================================================
+    # Requirement (a): Fragmented Source Records as they appear in each system
+    # ==========================================================================
+    with col_records:
+        st.markdown("### 📥 (a) Fragmented Agency Source Records")
+        st.markdown(f"""
+            <div style="font-size: 0.82rem; color: #5F5F5F; margin-bottom: 12px; line-height: 1.4;">
+                Notice that <strong>no shared or common ID exists</strong> across systems.
+                Names, phonetic spellings, ages/DOBs, and reported incident dates differ between agency records:
+            </div>
+        """, unsafe_allow_html=True)
+
+        records_list = case_data.get("records", [])
+        if not records_list:
+            st.info("No agency records recorded for this synthetic case.")
+        else:
+            for idx, rec in enumerate(records_list):
+                agency_title = rec.get("agency", "Agency Record")
+                rec_id = rec.get("record_id", f"REC-{idx}")
+                with st.expander(f"📄 {agency_title} — {rec_id}", expanded=True):
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        st.markdown(f"**Agency System:** `{agency_title}`")
+                        st.markdown(f"**System Record ID:** `{rec_id}`")
+                        st.markdown(f"**Subject Name:** `{rec.get('name') or 'N/A'}`")
+                        st.markdown(f"**Guardian / Spouse:** `{rec.get('guardian') or 'N/A'}`")
+                        age_val = rec.get("age") or rec.get("dob") or "Not Captured"
+                        st.markdown(f"**Age / DOB:** `{age_val}`")
+                    with rc2:
+                        st.markdown(f"**District:** `{rec.get('district') or 'N/A'}`")
+                        st.markdown(f"**Locality / Area:** `{rec.get('locality') or 'Not Captured'}`")
+                        st.markdown(f"**Reported Incident:** `{rec.get('incident_date') or 'N/A'}`")
+                        st.markdown(f"**System Date:** `{rec.get('record_date') or 'N/A'}`")
+                    if rec.get("details"):
+                        st.caption(f"System Notes / Charge: {rec.get('details')}")
+
+    # ==========================================================================
+    # Requirement (c): Reconstructed Journey Timeline with Days Between Stages
+    # ==========================================================================
+    with col_timeline:
+        st.markdown("### ⏳ (c) Reconstructed Journey Timeline")
+        st.markdown("""
+            <div style="font-size: 0.82rem; color: #5F5F5F; margin-bottom: 12px; line-height: 1.4;">
+                Institutional trajectory reconstructed through cross-agency linkage.
+                Elapsed days between milestones identify exactly where the case <strong>stalled</strong> or <strong>dropped</strong>:
+            </div>
+        """, unsafe_allow_html=True)
+
+        timeline = case_data.get("timeline", {})
+        steps = timeline.get("steps", [])
+        bottlenecks = timeline.get("bottlenecks", [])
+
+        for s in steps:
+            status = s.get("status", "UNKNOWN")
+            is_done = (status == "COMPLETED")
+            dot_c = "#8B1E3F" if is_done else "#B45309"
+            badge_class = "badge-privacy" if is_done else "badge-critical"
+            date_disp = f"🗓️ {s['date']}" if s.get('date') else "❌ Milestone Not Reached"
+            elapsed_disp = s.get("elapsed_label", "")
+
+            st.markdown(f"""
+                <div style="display: flex; align-items: flex-start; margin-bottom: 8px; padding: 10px 14px; background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid {dot_c}; border-radius: 4px;">
+                    <div style="flex-grow: 1;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong style="color: #222222; font-size: 0.88rem;">{s['stage']}</strong>
+                            <span class="badge {badge_class}" style="font-size: 0.72rem;">{status}</span>
+                        </div>
+                        <div style="font-size: 0.78rem; color: #5F5F5F; margin-top: 3px;">
+                            {date_disp} | Record ID: <code>{s.get('record_id', 'N/A')}</code>
+                        </div>
+                        {f'<div style="font-size: 0.74rem; font-weight: 600; color: #8B1E3F; margin-top: 2px;">⏱️ Latency: {elapsed_disp}</div>' if elapsed_disp else ''}
+                        {f'<div style="font-size: 0.74rem; color: #7F7F7F; margin-top: 2px;">{s["notes"]}</div>' if s.get("notes") else ''}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        # Highlight Stalled or Dropped Stage Flags
+        if bottlenecks:
+            for bn in bottlenecks:
+                st.markdown(f"""
+                    <div style="background: #FEF3C7; border: 1px solid #FCD34D; border-left: 4px solid #B45309; border-radius: 4px; padding: 10px 14px; margin-top: 8px; margin-bottom: 8px; font-size: 0.82rem;">
+                        <strong style="color: #B45309;">⚠️ Institutional Bottleneck ({bn['code']}) at {bn.get('stage', 'Pipeline')}:</strong><br/>
+                        <span style="color: #222222; font-weight: 600;">{bn['title']}</span><br/>
+                        <span style="color: #5F5F5F;">{bn['detail']}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+        elif timeline.get("is_dropped"):
+            st.markdown(f"""
+                <div style="background: #FEE2E2; border: 1px solid #FCA5A5; border-left: 4px solid #DC2626; border-radius: 4px; padding: 10px 14px; margin-top: 8px; margin-bottom: 8px; font-size: 0.82rem;">
+                    <strong style="color: #DC2626;">🔻 Case Attrition Leak Point:</strong> Journey stalled and dropped after <strong>{timeline.get('drop_point', 'Investigation')}</strong>.<br/>
+                    <span style="color: #5F5F5F;">The survivor never reached court trial or legal redress.</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # ==========================================================================
+    # Requirement (b): Pairwise Match Probability and Reasons
+    # ==========================================================================
+    st.markdown("### 🔗 (b) Pairwise Match Probability & Linkage Reasons")
+    st.markdown("""
+        <div style="font-size: 0.82rem; color: #5F5F5F; margin-bottom: 12px; line-height: 1.4;">
+            Every pairwise agency combination scored through the Fellegi-Sunter probabilistic comparison matrix.
+            Thresholds: <strong>Auto-Accept</strong> (P &ge; 0.85), <strong>Human Review</strong> (0.50 &le; P &lt; 0.85), <strong>Reject</strong> (P &lt; 0.50):
+        </div>
+    """, unsafe_allow_html=True)
+
+    pw_results = case_data.get("pairwise_results", [])
+    if pw_results:
+        table_rows = []
+        for p in pw_results:
+            d_label = "✅ AUTO_ACCEPT" if p["decision"] == "AUTO_ACCEPT" else ("⚠️ HUMAN_REVIEW" if p["decision"] == "HUMAN_REVIEW" else "❌ REJECT")
+            table_rows.append({
+                "Record A": p["record_a"],
+                "Record B": p["record_b"],
+                "Match Probability (P)": f"{p['match_probability']:.3f}",
+                "Weight (Log-Odds)": f"{p['match_weight']:+.2f}",
+                "Decision": d_label
+            })
+        st.dataframe(pd.DataFrame(table_rows), width="stretch")
+
+        st.markdown("#### 🔬 Per-Field Evidence Explanations")
+        for idx, p in enumerate(pw_results):
+            with st.expander(f"Scoring Evidence: {p['record_a']} ↔ {p['record_b']} ({p['decision']})", expanded=(idx == 0)):
+                st.markdown(f"**Posterior Match Probability:** `{p['match_probability']:.3f}` | **Composite Log-Odds Weight:** `{p['match_weight']:+.2f}` | **Decision:** `{p['decision']}`")
+                for ev in p.get("evidence", []):
+                    icon_ev = "🟢" if ev["status"] == "AGREE" else ("🟡" if ev["status"] == "PARTIAL" else ("🔴" if ev["status"] == "DISAGREE" else "⚪"))
+                    st.markdown(f"- {icon_ev} **{ev['field']}** ({ev['weight']:+.2f}): {ev['detail']}")
+    else:
+        st.info("Single record case; pairwise combinations require at least two agency records.")
 
 
 # ==============================================================================
