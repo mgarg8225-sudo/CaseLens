@@ -132,10 +132,10 @@ def test_account_lockout_after_five_failed_attempts(temp_auth_env):
 def test_viewer_rbac_permissions():
     """
     Verifies viewer can only access aggregate views:
-    Overview, Funnel, Bottlenecks, Linkage Quality, Policy Insights.
-    Viewer CANNOT access Case Simulator, Review Queue, or Audit Log.
+    Overview, Funnel, Bottlenecks, Linkage Quality, Policy Insights, Case Review (Case Explorer).
+    Viewer CANNOT access Policy Impact, Case Simulator, Review Queue, Audit Log, or Analyze Your Data.
     """
-    # Allowed aggregate pages & Case Explorer
+    # Allowed aggregate pages & Case Explorer (legacy aliases)
     assert check_user_permission("viewer", "📊 Executive Overview") is True
     assert check_user_permission("viewer", "🔻 Funnel with Uncertainty Ranges") is True
     assert check_user_permission("viewer", "⏱️ Duration Bottlenecks & Latency") is True
@@ -143,18 +143,37 @@ def test_viewer_rbac_permissions():
     assert check_user_permission("viewer", "📜 Statutory Policy Insights (TinyFish)") is True
     assert check_user_permission("viewer", "🔍 Case Explorer") is True
 
+    # Allowed canonical names (Phase 2 navigation unification)
+    assert check_user_permission("viewer", "🔻 Case Funnel") is True
+    assert check_user_permission("viewer", "⏱️ Duration & Bottlenecks") is True
+    assert check_user_permission("viewer", "🔗 Linkage Quality") is True
+    assert check_user_permission("viewer", "📜 Policy Insights") is True
+    assert check_user_permission("viewer", "🔍 Case Review") is True
+
     # Forbidden pages for viewer
+    assert check_user_permission("viewer", "⚖️ Policy Impact") is False
     assert check_user_permission("viewer", "🧪 Case Simulator") is False
     assert check_user_permission("viewer", "📋 Review Queue") is False
     assert check_user_permission("viewer", "📜 Audit Log") is False
+    assert check_user_permission("viewer", "🔬 Analyze Your Data") is False
 
 
 def test_analyst_rbac_permissions():
     """
-    Verifies analyst can access viewer pages + Case Simulator + Case Explorer,
+    Verifies analyst can access viewer pages + Policy Impact + Case Simulator + Case Review + Analyze Your Data,
     but CANNOT access admin-only Review Queue or Audit Log.
     """
+    assert check_user_permission("analyst", "🔬 Analyze Your Data") is True
     assert check_user_permission("analyst", "📊 Executive Overview") is True
+    assert check_user_permission("analyst", "🔻 Case Funnel") is True
+    assert check_user_permission("analyst", "⏱️ Duration & Bottlenecks") is True
+    assert check_user_permission("analyst", "🔗 Linkage Quality") is True
+    assert check_user_permission("analyst", "⚖️ Policy Impact") is True
+    assert check_user_permission("analyst", "🛡️ Privacy & Protection") is True
+    assert check_user_permission("analyst", "📜 Policy Insights") is True
+    assert check_user_permission("analyst", "🔍 Case Review") is True
+
+    # Legacy aliases
     assert check_user_permission("analyst", "🧪 Case Simulator") is True
     assert check_user_permission("analyst", "🔍 Case Explorer") is True
     assert check_user_permission("analyst", "⚖️ Before / After Policy Transformation") is True
@@ -167,11 +186,22 @@ def test_analyst_rbac_permissions():
 
 def test_admin_rbac_permissions():
     """Verifies admin has full access to all pages including Review Queue and Audit Log."""
+    assert check_user_permission("admin", "🔬 Analyze Your Data") is True
     assert check_user_permission("admin", "📊 Executive Overview") is True
+    assert check_user_permission("admin", "🔻 Case Funnel") is True
+    assert check_user_permission("admin", "⏱️ Duration & Bottlenecks") is True
+    assert check_user_permission("admin", "🔗 Linkage Quality") is True
+    assert check_user_permission("admin", "⚖️ Policy Impact") is True
+    assert check_user_permission("admin", "🛡️ Privacy & Protection") is True
+    assert check_user_permission("admin", "📜 Policy Insights") is True
+    assert check_user_permission("admin", "🔍 Case Review") is True
+    assert check_user_permission("admin", "📜 Audit Log") is True
+
+    # Legacy aliases and sub-features
     assert check_user_permission("admin", "🧪 Case Simulator") is True
     assert check_user_permission("admin", "🔍 Case Explorer") is True
     assert check_user_permission("admin", "📋 Review Queue") is True
-    assert check_user_permission("admin", "📜 Audit Log") is True
+
 
 
 # ==============================================================================

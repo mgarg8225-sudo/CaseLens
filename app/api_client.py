@@ -158,41 +158,75 @@ def _handle_response_status(resp: requests.Response) -> bool:
 
 ROLE_PERMISSIONS: Dict[str, List[str]] = {
     "viewer": [
-        "🔬 Analyze Your Data",
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🔍 Case Explorer"
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "📜 Policy Insights",
+        "🔍 Case Review"
     ],
     "analyst": [
         "🔬 Analyze Your Data",
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "⚖️ Before / After Policy Transformation",
-        "🛡️ Survivor Privacy & DP Engine",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator",
-        "🔍 Case Explorer"
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "⚖️ Policy Impact",
+        "🛡️ Privacy & Protection",
+        "📜 Policy Insights",
+        "🔍 Case Review"
     ],
     "admin": [
         "🔬 Analyze Your Data",
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "⚖️ Before / After Policy Transformation",
-        "🛡️ Survivor Privacy & DP Engine",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator",
-        "🔍 Case Explorer",
-        "📋 Review Queue",
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "⚖️ Policy Impact",
+        "🛡️ Privacy & Protection",
+        "📜 Policy Insights",
+        "🔍 Case Review",
         "📜 Audit Log"
     ]
 }
+
+PAGE_ALIASES: Dict[str, str] = {
+    "funnel with uncertainty ranges": "case funnel",
+    "case funnel": "case funnel",
+    "duration bottlenecks & latency": "duration & bottlenecks",
+    "duration bottlenecks and latency": "duration & bottlenecks",
+    "duration bottlenecks latency": "duration & bottlenecks",
+    "duration & bottlenecks": "duration & bottlenecks",
+    "duration bottlenecks": "duration & bottlenecks",
+    "linkage quality & evaluation": "linkage quality",
+    "linkage quality and evaluation": "linkage quality",
+    "linkage quality evaluation": "linkage quality",
+    "linkage quality": "linkage quality",
+    "before / after policy transformation": "policy impact",
+    "before after policy transformation": "policy impact",
+    "policy impact": "policy impact",
+    "survivor privacy & dp engine": "privacy & protection",
+    "survivor privacy and dp engine": "privacy & protection",
+    "survivor privacy dp engine": "privacy & protection",
+    "privacy & protection": "privacy & protection",
+    "privacy protection": "privacy & protection",
+    "statutory policy insights (tinyfish)": "policy insights",
+    "statutory policy insights tinyfish": "policy insights",
+    "statutory policy insights": "policy insights",
+    "policy insights": "policy insights",
+    "case explorer": "case review",
+    "case review": "case review",
+    "case simulator": "policy impact",
+    "review queue": "review queue",
+    "audit log": "audit log",
+    "executive overview": "executive overview",
+    "analyze your data": "analyze your data",
+}
+
+
+def _clean_page_str(val: str) -> str:
+    """Strips emoji and punctuation, returns collapsed lowercase tokens."""
+    return " ".join(re.sub(r"[^\w\s]", " ", val).lower().split())
 
 
 def normalize_role(role: Optional[str]) -> str:
@@ -217,11 +251,55 @@ def check_user_permission(role: Optional[str], page: str) -> bool:
     allowed = ROLE_PERMISSIONS.get(norm_r, ROLE_PERMISSIONS["viewer"])
     if page in allowed:
         return True
-    page_clean = re.sub(r"[^\w\s]", "", page).strip().lower()
+
+    p_clean = _clean_page_str(page)
+
+    # Admin-only sub-features / routes
+    if "review queue" in p_clean:
+        return norm_r == "admin"
+    if "audit log" in p_clean or p_clean == "audit":
+        return norm_r == "admin"
+
+    # Analyst+ features / routes
+    if "case simulator" in p_clean or p_clean == "simulator":
+        return norm_r in ["analyst", "admin"]
+    if "analyze your data" in p_clean or "analyze" in p_clean:
+        return norm_r in ["analyst", "admin"]
+    if "policy impact" in p_clean or "before after" in p_clean:
+        return norm_r in ["analyst", "admin"]
+
+    # Case Explorer is accessible to all roles under Case Review (with role-based masking)
+    if "case explorer" in p_clean or "explorer" in p_clean:
+        return True
+
+    # Check direct alias mapping
+    mapped = PAGE_ALIASES.get(p_clean)
+
+    # Check against allowed pages for the role
     for allowed_p in allowed:
-        p_clean = re.sub(r"[^\w\s]", "", allowed_p).strip().lower()
-        if page_clean == p_clean or page_clean in p_clean or p_clean in page_clean:
+        ap_clean = _clean_page_str(allowed_p)
+        if p_clean == ap_clean:
             return True
+        if mapped and (_clean_page_str(mapped) == ap_clean or mapped in ap_clean or ap_clean in mapped):
+            return True
+        # Keyword heuristic matching between alias and canonical
+        if "duration" in p_clean and "duration" in ap_clean:
+            return True
+        if "funnel" in p_clean and "funnel" in ap_clean:
+            return True
+        if "linkage" in p_clean and "linkage" in ap_clean:
+            return True
+        if "statutory" in p_clean and ("statutory" in ap_clean or "insight" in ap_clean):
+            return True
+        if "insight" in p_clean and "insight" in ap_clean:
+            return True
+        if "privacy" in p_clean and "privacy" in ap_clean:
+            return True
+        if ("case review" in p_clean or "case explorer" in p_clean) and "case review" in ap_clean:
+            return True
+        if "overview" in p_clean and "overview" in ap_clean:
+            return True
+
     return False
 
 

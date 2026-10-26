@@ -210,14 +210,16 @@ def test_navigation_request_flow():
     """Verifies that navigation requests use nav_page_request and don't modify nav_page_selection directly."""
     import streamlit as st
     
-    # 1. Fresh session defaults to first allowed page ("🔬 Analyze Your Data")
+    # 1. Fresh session defaults to first allowed page: Analyze Your Data for Analyst/Admin, Executive Overview for Viewer
     st.session_state.clear()
-    for role, pages in ROLE_PERMISSIONS.items():
-        assert pages[0] == "🔬 Analyze Your Data", f"First page for {role} must be '🔬 Analyze Your Data'"
+    assert ROLE_PERMISSIONS["analyst"][0] == "🔬 Analyze Your Data"
+    assert ROLE_PERMISSIONS["admin"][0] == "🔬 Analyze Your Data"
+    assert "🔬 Analyze Your Data" not in ROLE_PERMISSIONS["viewer"]
+    assert ROLE_PERMISSIONS["viewer"][0] == "📊 Executive Overview"
     
     # 2. Calling request_navigation sets nav_page_request key without touching nav_page_selection
-    request_navigation("🔬 Analyze Your Data")
-    assert st.session_state.get("nav_page_request") == "🔬 Analyze Your Data"
+    request_navigation("📊 Executive Overview")
+    assert st.session_state.get("nav_page_request") == "📊 Executive Overview"
     assert "nav_page_selection" not in st.session_state
 
     # 3. Sidebar navigation resolution applies request before radio instantiation
@@ -227,7 +229,7 @@ def test_navigation_request_flow():
         if req in allowed:
             st.session_state["nav_page_selection"] = req
 
-    assert st.session_state["nav_page_selection"] == "🔬 Analyze Your Data"
+    assert st.session_state["nav_page_selection"] == "📊 Executive Overview"
     assert "nav_page_request" not in st.session_state
 
 

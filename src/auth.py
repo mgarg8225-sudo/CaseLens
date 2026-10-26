@@ -544,38 +544,46 @@ def get_current_authenticated_user(
     x_user_role: Optional[str] = Header(None, alias="X-User-Role")
 ) -> UserContext:
     """
-    Extracts and validates credentials from Authorization: Bearer <jwt>,
-    falling back to API keys or role headers for backwards compatibility.
+    Extracts and validates credentials from Authorization: Bearer <jwt> or configured API keys.
+    Production strictly rejects unauthenticated role headers and raw demo tokens.
+    Test-mode role header is strictly isolated and only active if CASELENS_TEST_AUTH == '1'.
     """
     # 1. Check Bearer Token (JWT)
     if authorization and authorization.lower().startswith("bearer "):
         raw_token = authorization[7:].strip()
         # Decode and validate signature
-        payload = decode_access_token(raw_token)
-        return UserContext(
-            user_id=payload["user_id"],
-            username=payload.get("username", "user"),
-            role=payload["role"],
-            agency=payload.get("agency"),
-            district=payload.get("district"),
-            auth_method="jwt"
-        )
+        if raw_token.count(".") == 2:
+            payload = decode_access_token(raw_token)
+            return UserContext(
+                user_id=payload["user_id"],
+                username=payload.get("username", "user"),
+                role=payload["role"],
+                agency=payload.get("agency"),
+                district=payload.get("district"),
+                auth_method="jwt"
+            )
+        # Check if Bearer token matches configured API keys
+        from src.api import API_KEYS, Role
+        if raw_token in API_KEYS:
+            role_enum = API_KEYS[raw_token]
+            mapped_role = "admin" if role_enum == Role.ADMIN else ("linkage_reviewer" if role_enum == Role.ANALYST else "public_viewer")
+            return UserContext(user_id=f"key_{role_enum.value}", username=f"key_{role_enum.value}", role=mapped_role, auth_method="api_key")
 
-    # 2. Check X-API-Key or fallback headers
+    # 2. Check X-API-Key against configured API keys
     if x_api_key:
         key_str = x_api_key.strip()
-        if "admin" in key_str.lower():
-            return UserContext(user_id="key_admin", username="admin_key", role="admin", auth_method="api_key")
-        elif "analyst" in key_str.lower():
-            return UserContext(user_id="key_analyst", username="analyst_key", role="linkage_reviewer", auth_method="api_key")
-        elif "viewer" in key_str.lower():
-            return UserContext(user_id="key_viewer", username="viewer_key", role="public_viewer", auth_method="api_key")
+        from src.api import API_KEYS, Role
+        if key_str in API_KEYS:
+            role_enum = API_KEYS[key_str]
+            mapped_role = "admin" if role_enum == Role.ADMIN else ("linkage_reviewer" if role_enum == Role.ANALYST else "public_viewer")
+            return UserContext(user_id=f"key_{role_enum.value}", username=f"key_{role_enum.value}", role=mapped_role, auth_method="api_key")
 
-    if x_user_role:
+    # 3. Test-only authentication: strictly isolated from production
+    if os.environ.get("CASELENS_TEST_AUTH") == "1" and x_user_role:
         r = x_user_role.strip().lower()
         if r in VALID_ROLES or r in ["analyst", "viewer"]:
             mapped_role = "linkage_reviewer" if r == "analyst" else ("public_viewer" if r == "viewer" else r)
-            return UserContext(user_id=f"header_{r}", username=f"header_{r}", role=mapped_role, auth_method="role_header")
+            return UserContext(user_id=f"test_header_{r}", username=f"test_header_{r}", role=mapped_role, auth_method="test_role_header")
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -680,37 +688,74 @@ def activate_user(
 ROLE_PERMISSIONS: Dict[str, List[str]] = {
     "viewer": [
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🔍 Case Explorer"
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "📜 Policy Insights",
+        "🔍 Case Review"
     ],
     "analyst": [
+        "🔬 Analyze Your Data",
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "⚖️ Before / After Policy Transformation",
-        "🛡️ Survivor Privacy & DP Engine",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator",
-        "🔍 Case Explorer"
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "⚖️ Policy Impact",
+        "🛡️ Privacy & Protection",
+        "📜 Policy Insights",
+        "🔍 Case Review"
     ],
     "admin": [
+        "🔬 Analyze Your Data",
         "📊 Executive Overview",
-        "🔻 Funnel with Uncertainty Ranges",
-        "⏱️ Duration Bottlenecks & Latency",
-        "🔗 Linkage Quality & Evaluation",
-        "⚖️ Before / After Policy Transformation",
-        "🛡️ Survivor Privacy & DP Engine",
-        "📜 Statutory Policy Insights (TinyFish)",
-        "🧪 Case Simulator",
-        "🔍 Case Explorer",
-        "📋 Review Queue",
+        "🔻 Case Funnel",
+        "⏱️ Duration & Bottlenecks",
+        "🔗 Linkage Quality",
+        "⚖️ Policy Impact",
+        "🛡️ Privacy & Protection",
+        "📜 Policy Insights",
+        "🔍 Case Review",
         "📜 Audit Log"
     ]
 }
+
+PAGE_ALIASES: Dict[str, str] = {
+    "funnel with uncertainty ranges": "case funnel",
+    "case funnel": "case funnel",
+    "duration bottlenecks & latency": "duration & bottlenecks",
+    "duration bottlenecks and latency": "duration & bottlenecks",
+    "duration bottlenecks latency": "duration & bottlenecks",
+    "duration & bottlenecks": "duration & bottlenecks",
+    "duration bottlenecks": "duration & bottlenecks",
+    "linkage quality & evaluation": "linkage quality",
+    "linkage quality and evaluation": "linkage quality",
+    "linkage quality evaluation": "linkage quality",
+    "linkage quality": "linkage quality",
+    "before / after policy transformation": "policy impact",
+    "before after policy transformation": "policy impact",
+    "policy impact": "policy impact",
+    "survivor privacy & dp engine": "privacy & protection",
+    "survivor privacy and dp engine": "privacy & protection",
+    "survivor privacy dp engine": "privacy & protection",
+    "privacy & protection": "privacy & protection",
+    "privacy protection": "privacy & protection",
+    "statutory policy insights (tinyfish)": "policy insights",
+    "statutory policy insights tinyfish": "policy insights",
+    "statutory policy insights": "policy insights",
+    "policy insights": "policy insights",
+    "case explorer": "case review",
+    "case review": "case review",
+    "case simulator": "policy impact",
+    "review queue": "review queue",
+    "audit log": "audit log",
+    "executive overview": "executive overview",
+    "analyze your data": "analyze your data",
+}
+
+
+def _clean_page_str(val: str) -> str:
+    """Strips emoji and punctuation, returns collapsed lowercase tokens."""
+    return " ".join(re.sub(r"[^\w\s]", " ", val).lower().split())
 
 
 def normalize_role(role: Optional[str]) -> str:
@@ -731,18 +776,62 @@ def normalize_role(role: Optional[str]) -> str:
 
 def check_user_permission(role: Optional[str], page: str) -> bool:
     """
-    Enforces server-side RBAC.
-    Returns True if the role is allowed to view the requested page, False otherwise.
+    Enforces server-side RBAC across application views.
+    Returns True if the role is allowed to view the requested page or feature, False otherwise.
     """
     norm_r = normalize_role(role)
     allowed = ROLE_PERMISSIONS.get(norm_r, ROLE_PERMISSIONS["viewer"])
     if page in allowed:
         return True
-    page_clean = re.sub(r"[^\w\s]", "", page).strip().lower()
+
+    p_clean = _clean_page_str(page)
+
+    # Admin-only sub-features / routes
+    if "review queue" in p_clean:
+        return norm_r == "admin"
+    if "audit log" in p_clean or p_clean == "audit":
+        return norm_r == "admin"
+
+    # Analyst+ features / routes
+    if "case simulator" in p_clean or p_clean == "simulator":
+        return norm_r in ["analyst", "admin"]
+    if "analyze your data" in p_clean or "analyze" in p_clean:
+        return norm_r in ["analyst", "admin"]
+    if "policy impact" in p_clean or "before after" in p_clean:
+        return norm_r in ["analyst", "admin"]
+
+    # Case Explorer is accessible to all roles under Case Review (with role-based masking)
+    if "case explorer" in p_clean or "explorer" in p_clean:
+        return True
+
+    # Check direct alias mapping
+    mapped = PAGE_ALIASES.get(p_clean)
+
+    # Check against allowed pages for the role
     for allowed_p in allowed:
-        p_clean = re.sub(r"[^\w\s]", "", allowed_p).strip().lower()
-        if page_clean == p_clean or page_clean in p_clean or p_clean in page_clean:
+        ap_clean = _clean_page_str(allowed_p)
+        if p_clean == ap_clean:
             return True
+        if mapped and (_clean_page_str(mapped) == ap_clean or mapped in ap_clean or ap_clean in mapped):
+            return True
+        # Keyword heuristic matching between alias and canonical
+        if "duration" in p_clean and "duration" in ap_clean:
+            return True
+        if "funnel" in p_clean and "funnel" in ap_clean:
+            return True
+        if "linkage" in p_clean and "linkage" in ap_clean:
+            return True
+        if "statutory" in p_clean and ("statutory" in ap_clean or "insight" in ap_clean):
+            return True
+        if "insight" in p_clean and "insight" in ap_clean:
+            return True
+        if "privacy" in p_clean and "privacy" in ap_clean:
+            return True
+        if ("case review" in p_clean or "case explorer" in p_clean) and "case review" in ap_clean:
+            return True
+        if "overview" in p_clean and "overview" in ap_clean:
+            return True
+
     return False
 
 

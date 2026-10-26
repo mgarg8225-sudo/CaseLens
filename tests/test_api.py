@@ -79,8 +79,8 @@ def test_invalid_api_key_rejected(api_client):
 def test_viewer_role_permissions(api_client):
     """
     Verifies Viewer permissions:
-    - CAN access /summary, /funnel, /districts, /policy-context.
-    - CANNOT access /bottlenecks, /categories (Analyst only) -> 403.
+    - CAN access /summary, /funnel, /districts, /policy-context, /bottlenecks (safe aggregate percentiles).
+    - CANNOT access /before-after, /categories (Analyst only) -> 403.
     - CANNOT access /audit/logs, /privacy/budget/reset (Admin only) -> 403.
     """
     headers = {"X-API-Key": "viewer-key-leaky-2026"}
@@ -96,10 +96,18 @@ def test_viewer_role_permissions(api_client):
     res_pol = api_client.get("/api/v1/policy-context", headers=headers)
     assert res_pol.status_code == 200
 
-    # Forbidden Analyst endpoints
+    # Allowed safe aggregate bottlenecks endpoint (Priority 2)
     res_bot = api_client.get("/api/v1/bottlenecks", headers=headers)
-    assert res_bot.status_code == 403
-    assert "Forbidden" in res_bot.json()["detail"]
+    assert res_bot.status_code == 200
+    assert "transitions" in res_bot.json()
+
+    # Forbidden Analyst endpoints (/before-after is Analyst+)
+    res_ba = api_client.get("/api/v1/before-after", headers=headers)
+    assert res_ba.status_code == 403
+    assert "Forbidden" in res_ba.json()["detail"]
+
+    res_cat = api_client.get("/api/v1/categories", headers=headers)
+    assert res_cat.status_code == 403
 
     # Forbidden Admin endpoints
     res_audit = api_client.get("/api/v1/audit/logs", headers=headers)
@@ -109,8 +117,8 @@ def test_viewer_role_permissions(api_client):
 def test_analyst_role_permissions(api_client):
     """
     Verifies Analyst permissions:
-    - CAN access Viewer endpoints (/funnel, /districts).
-    - CAN access Analyst endpoints (/bottlenecks, /categories, /privacy/budget).
+    - CAN access Viewer endpoints (/funnel, /districts, /bottlenecks).
+    - CAN access Analyst endpoints (/before-after, /categories, /privacy/budget).
     - CANNOT access Admin endpoints (/audit/logs, /privacy/budget/reset) -> 403.
     """
     headers = {"X-API-Key": "analyst-key-leaky-2026"}
@@ -118,6 +126,7 @@ def test_analyst_role_permissions(api_client):
     # Allowed Viewer & Analyst endpoints
     assert api_client.get("/api/v1/funnel", headers=headers).status_code == 200
     assert api_client.get("/api/v1/bottlenecks", headers=headers).status_code == 200
+    assert api_client.get("/api/v1/before-after", headers=headers).status_code == 200
     assert api_client.get("/api/v1/categories", headers=headers).status_code == 200
     assert api_client.get("/api/v1/privacy/budget", headers=headers).status_code == 200
 
@@ -135,25 +144,56 @@ def test_admin_role_permissions(api_client):
 
     assert api_client.get("/api/v1/funnel", headers=headers).status_code == 200
     assert api_client.get("/api/v1/bottlenecks", headers=headers).status_code == 200
+    assert api_client.get("/api/v1/before-after", headers=headers).status_code == 200
     assert api_client.get("/api/v1/audit/logs", headers=headers).status_code == 200
     assert api_client.get("/api/v1/privacy/diagnostics", headers=headers).status_code == 200
 
 
 def test_bearer_token_and_header_auth(api_client):
-    """Verifies Authorization: Bearer <key> and X-User-Role work interchangeably."""
-    # Bearer header
+    """Verifies Authorization: Bearer <valid-key> works and unauthenticated X-User-Role is blocked in production."""
+    # Bearer header with valid key works
     resp_bearer = api_client.get(
         "/api/v1/districts",
         headers={"Authorization": "Bearer viewer-key-leaky-2026"}
     )
     assert resp_bearer.status_code == 200
 
-    # X-User-Role header
+    # Production authentication blocks unauthenticated X-User-Role header bypass
     resp_role = api_client.get(
         "/api/v1/districts",
         headers={"X-User-Role": "viewer"}
     )
-    assert resp_role.status_code == 200
+    assert resp_role.status_code == 401
+
+
+def test_unauthenticated_role_impersonation_regression(api_client):
+    """Regression test: Unauthenticated callers cannot impersonate Admin, Analyst, or Viewer."""
+    # Attempting to bypass auth with raw role header
+    for role in ["admin", "analyst", "viewer"]:
+        res_header = api_client.get("/api/v1/funnel", headers={"X-User-Role": role})
+        assert res_header.status_code == 401, f"Raw X-User-Role: {role} must be rejected with 401"
+
+        res_audit = api_client.get("/api/v1/audit/logs", headers={"X-User-Role": role})
+        assert res_audit.status_code == 401, f"Audit log must reject unauthenticated {role} header"
+
+    # Attempting to authenticate with raw role strings as Bearer tokens
+    for raw_token in ["admin", "analyst", "viewer"]:
+        res_token = api_client.get("/api/v1/funnel", headers={"Authorization": f"Bearer {raw_token}"})
+        assert res_token.status_code == 401, f"Raw role token '{raw_token}' must be rejected with 401"
+
+
+def test_test_auth_mode_isolation(api_client, monkeypatch):
+    """Verifies that X-User-Role header is isolated and ONLY accepted when CASELENS_TEST_AUTH='1'."""
+    # 1. When CASELENS_TEST_AUTH is not set, X-User-Role is rejected
+    monkeypatch.delenv("CASELENS_TEST_AUTH", raising=False)
+    resp_prod = api_client.get("/api/v1/districts", headers={"X-User-Role": "viewer"})
+    assert resp_prod.status_code == 401
+
+    # 2. When CASELENS_TEST_AUTH is explicitly set to '1', test harness role header is permitted
+    monkeypatch.setenv("CASELENS_TEST_AUTH", "1")
+    resp_test = api_client.get("/api/v1/districts", headers={"X-User-Role": "viewer"})
+    assert resp_test.status_code == 200
+
 
 
 # ==============================================================================

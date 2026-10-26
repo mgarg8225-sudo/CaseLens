@@ -408,9 +408,10 @@ def get_current_user(
 ) -> UserContext:
     """
     Authenticates requests via:
-    1. X-API-Key header.
-    2. Authorization: Bearer <key> header.
-    3. X-User-Role header (for testing and controlled environment integration).
+    1. Authorization: Bearer <jwt> (valid signed JWT token)
+    2. Configured institutional API Keys (via X-API-Key or Bearer <api-key>)
+    Production strictly rejects unauthenticated role headers and raw demo tokens.
+    Test-mode role header is strictly isolated and only active if CASELENS_TEST_AUTH == '1'.
     """
     token = None
     if x_api_key:
@@ -429,24 +430,16 @@ def get_current_user(
                 auth_method="jwt"
             )
 
-    # 1. Match configured API Keys
+    # 1. Match configured API Keys (via X-API-Key or Bearer <api-key>)
     if token and token in API_KEYS:
         role = API_KEYS[token]
         return UserContext(user_id=f"key_{role.value}", role=role, auth_method="api_key")
 
-    # 2. Match direct testing role header if valid
-    if x_user_role:
+    # 2. Test-isolated role header: strictly disallowed in production
+    if os.environ.get("CASELENS_TEST_AUTH") == "1" and x_user_role:
         role_str = x_user_role.lower().strip()
         if role_str in [r.value for r in Role]:
-            return UserContext(user_id=f"header_{role_str}", role=Role(role_str), auth_method="role_header")
-
-    # 3. Check for default demo tokens if supplied directly
-    if token == "admin":
-        return UserContext(user_id="demo_admin", role=Role.ADMIN, auth_method="demo_token")
-    if token == "analyst":
-        return UserContext(user_id="demo_analyst", role=Role.ANALYST, auth_method="demo_token")
-    if token == "viewer":
-        return UserContext(user_id="demo_viewer", role=Role.VIEWER, auth_method="demo_token")
+            return UserContext(user_id=f"test_header_{role_str}", role=Role(role_str), auth_method="test_role_header")
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -457,7 +450,11 @@ def get_current_user(
 
 def require_role(minimum_role: Role):
     """Factory creating dependency verifying caller has at least minimum_role."""
-    def _role_checker(user: UserContext = Depends(get_current_user)) -> UserContext:
+    def _role_checker(
+        request: Request,
+        user: UserContext = Depends(get_current_user)
+    ) -> UserContext:
+        request.state.user_role = user.role.value
         user_rank = ROLE_HIERARCHY.get(user.role, 0)
         required_rank = ROLE_HIERARCHY.get(minimum_role, 0)
         if user_rank < required_rank:
@@ -578,8 +575,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         request.state.request_id = req_id
         client_ip = request.client.host if request.client else "127.0.0.1"
 
-        # Read role header if present for auditing before auth validation
-        role_header = request.headers.get("X-User-Role", "unknown")
+        # Read verified role if set, otherwise inspect credentials
+        role_header = getattr(request.state, "user_role", None) or "unauthenticated"
         api_key = request.headers.get("X-API-Key")
         if api_key in API_KEYS:
             role_header = API_KEYS[api_key].value
@@ -596,6 +593,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                         role_header = p_info.get("role", "viewer")
                     except Exception:
                         pass
+            elif os.environ.get("CASELENS_TEST_AUTH") == "1" and request.headers.get("X-User-Role"):
+                role_header = request.headers.get("X-User-Role", "unauthenticated")
 
         try:
             response = await call_next(request)
@@ -924,7 +923,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="evaluation_metrics")
 
-    @app.get("/api/v1/before-after", tags=["Aggregates (Viewer+)"])
+    @app.get("/api/v1/before-after", tags=["Deep Analytics (Analyst+)"])
     def get_before_after_insights(
         request: Request,
         district: Optional[str] = Query(None),
@@ -932,7 +931,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         to_date: Optional[str] = Query(None),
         stage: Optional[str] = Query(None),
         category: Optional[str] = Query(None),
-        user: UserContext = Depends(require_role(Role.VIEWER))
+        user: UserContext = Depends(require_role(Role.ANALYST))
     ):
         """
         Dynamic Before vs After policy transformation insights and comparative metrics.
@@ -976,7 +975,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     # 10. Endpoints: Analyst+ (Analyst, Admin) & Deep Analytics
     # ==========================================================================
 
-    @app.get("/api/v1/bottlenecks", tags=["Deep Analytics (Analyst+)"])
+    @app.get("/api/v1/bottlenecks", tags=["Aggregates (Viewer+)"])
     def get_bottlenecks(
         request: Request,
         district: Optional[str] = Query(None),
@@ -984,7 +983,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         to_date: Optional[str] = Query(None),
         stage: Optional[str] = Query(None),
         category: Optional[str] = Query(None),
-        user: UserContext = Depends(require_role(Role.ANALYST))
+        user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Stage transition duration percentiles (median, IQR, p90, p95)

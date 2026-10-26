@@ -36,9 +36,9 @@ def api_client():
     yield client
 
 
-ANALYST_HEADERS = {"X-User-Role": "analyst"}
-ADMIN_HEADERS = {"X-User-Role": "admin"}
-VIEWER_HEADERS = {"X-User-Role": "viewer"}
+ANALYST_HEADERS = {"X-API-Key": "analyst-key-leaky-2026"}
+ADMIN_HEADERS = {"X-API-Key": "admin-key-leaky-2026"}
+VIEWER_HEADERS = {"X-API-Key": "viewer-key-leaky-2026"}
 
 
 # ==============================================================================
