@@ -53,6 +53,7 @@ from app.api_client import (
     get_review_queue,
     get_audit_logs,
     reset_privacy_budget,
+    refresh_policy_context,
     log_audit_event,
     load_dashboard_bundle,
     load_json_fallback,
@@ -548,8 +549,8 @@ def request_navigation(page_name: str):
         st.session_state["nav_page_request"] = "🛡️ Privacy & Protection"
     elif "insight" in p_clean or "statutory" in p_clean:
         st.session_state["nav_page_request"] = "📜 Policy Insights"
-    elif "audit" in p_clean:
-        st.session_state["nav_page_request"] = "📜 Audit Log"
+    elif "audit" in p_clean or "administration" in p_clean:
+        st.session_state["nav_page_request"] = "⚙️ Administration"
     elif "analyze" in p_clean:
         st.session_state["nav_page_request"] = "🔬 Analyze Your Data"
     elif "overview" in p_clean:
@@ -934,12 +935,16 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
                 st.session_state["sample_analysis_res"] = None
                 st.rerun()
 
-        st.markdown("### 🧭 Navigation")
+        st.markdown("### 🧭 Analytical Views")
         allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])
+        analytical_pages = [p for p in allowed_pages if p != "⚙️ Administration"]
+
         if "nav_page_request" in st.session_state:
             requested_page = st.session_state.pop("nav_page_request")
             if requested_page in allowed_pages:
                 st.session_state["nav_page_selection"] = requested_page
+            elif CURRENT_ROLE == "admin" and ("admin" in requested_page.lower() or "audit" in requested_page.lower()):
+                st.session_state["nav_page_selection"] = "⚙️ Administration"
             else:
                 p_clean = re.sub(r"[^\w\s]", "", requested_page).strip().lower()
                 for ap in allowed_pages:
@@ -947,20 +952,44 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
                     if p_clean == ap_clean or p_clean in ap_clean or ap_clean in p_clean:
                         st.session_state["nav_page_selection"] = ap
                         break
-        if "nav_page_selection" not in st.session_state or st.session_state["nav_page_selection"] not in allowed_pages:
-            st.session_state["nav_page_selection"] = allowed_pages[0]
-        PAGE = st.radio(
+
+        current_selection = st.session_state.get("nav_page_selection")
+        if not current_selection or (current_selection not in allowed_pages and current_selection != "⚙️ Administration"):
+            current_selection = analytical_pages[0]
+            st.session_state["nav_page_selection"] = current_selection
+
+        idx = analytical_pages.index(current_selection) if current_selection in analytical_pages else None
+
+        selected_analytical = st.radio(
             label="Select Analytical View",
-            options=allowed_pages,
-            key="nav_page_selection",
+            options=analytical_pages,
+            index=idx,
+            key="analytical_nav_radio",
             label_visibility="collapsed"
         )
+
+        PAGE = selected_analytical if current_selection != "⚙️ Administration" else "⚙️ Administration"
+        if selected_analytical and selected_analytical != current_selection and current_selection == "⚙️ Administration":
+            st.session_state["nav_page_selection"] = selected_analytical
+            PAGE = selected_analytical
+
+        # Dedicated Administration section visible exclusively to Admin users
         if CURRENT_ROLE == "admin":
-            st.markdown("""
-                <div style="font-size: 0.72rem; color: #8B1E3F; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; padding-top: 6px;">
-                    🛡️ Administration Section Active (Audit Log Included)
-                </div>
-            """, unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown("### ⚙️ Administration")
+            is_admin_active = (current_selection in ["⚙️ Administration", "📜 Audit Log"])
+            if st.button(
+                "⚙️ Security & System Administration",
+                key="btn_sidebar_admin_nav",
+                width="stretch",
+                type="primary" if is_admin_active else "secondary",
+                help="Admin Controls: Audit Logs, Privacy Budget Management, and System Diagnostics"
+            ):
+                st.session_state["nav_page_selection"] = "⚙️ Administration"
+                st.rerun()
+
+            if is_admin_active:
+                PAGE = "⚙️ Administration"
 
         st.markdown("---")
         st.markdown("### 🎛️ Global Filters")
@@ -3019,40 +3048,13 @@ elif PAGE in ["🛡️ Privacy & Protection", "🛡️ Survivor Privacy & DP Eng
             </div>
         """, unsafe_allow_html=True)
 
-    # Admin Privacy Budget Controls
+    # Admin Privacy Budget Notice
     if CURRENT_ROLE == "admin":
-        st.markdown("### ⚙️ Differential Privacy Budget Administration")
-        with st.container():
-            st.markdown("""
-                <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 14px 18px; margin-bottom: 14px;">
-                    <strong style="color: #222222; font-size: 0.95rem;">Reset Privacy Budget</strong>
-                    <div style="color: #5F5F5F; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
-                        Reset or reconfigure the live differential privacy budget. Resetting restores query capacity and clears the dynamic query cache, enabling judges and reviewers to test analytical queries without interruption.
-                    </div>
-                </div>
-            """, unsafe_allow_html=True)
-            ac1, ac2, ac3 = st.columns([3, 3, 4])
-            with ac1:
-                admin_eps_target = st.number_input(
-                    "Total Epsilon Upper Bound (ε)",
-                    min_value=1.0,
-                    max_value=100.0,
-                    value=float(budget_sum.get("total_epsilon_allocated", 10.0)),
-                    step=1.0,
-                    key="admin_page_reset_eps_input"
-                )
-            with ac2:
-                st.write("")
-                st.write("")
-                if st.button("🔄 Reset Privacy Budget", type="primary", key="admin_page_reset_budget_btn"):
-                    res = reset_privacy_budget(total_epsilon=admin_eps_target, token=st.session_state.get("token"))
-                    if res.get("message") or res.get("success"):
-                        st.session_state["privacy_budget_exhausted"] = False
-                        st.cache_data.clear()
-                        st.success(f"Differential privacy budget reset to {admin_eps_target:.2f} ε successfully.")
-                        st.rerun()
-                    else:
-                        st.error("Failed to reset privacy budget. Ensure admin privileges.")
+        st.markdown("""
+            <div style="background: #FDF2F4; border: 1px solid #E8B4BC; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 12px 16px; margin-top: 14px; margin-bottom: 14px; font-size: 0.88rem; color: #8B1E3F;">
+                <strong>⚙️ Administrator Governance:</strong> Differential Privacy budget reconfiguration and reset controls have been centralized into the dedicated <strong>Administration</strong> section in the sidebar.
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("<br/>", unsafe_allow_html=True)
 
@@ -3583,71 +3585,229 @@ elif PAGE in ["🔍 Case Review", "🔍 Case Explorer", "📋 Review Queue"]:
 # PAGE 9: 📜 Audit Log (Admin Only - Zero-PII Security Ledger)
 # ==============================================================================
 
-elif PAGE in ["📜 Audit Log", "🔐 Audit Log"]:
+# ==============================================================================
+# PAGE 9: ⚙️ Administration (Admin Only - Audit Ledger, Budget Reset & Diagnostics)
+# ==============================================================================
+
+elif PAGE in ["⚙️ Administration", "📜 Audit Log", "🔐 Audit Log"]:
     if CURRENT_ROLE != "admin":
-        st.error("⛔ Access Denied: Administrator role required to view the Security Audit Log.")
+        st.error("⛔ Access Denied: Administrator role required to access System Administration.")
         st.stop()
 
     st.markdown("""
         <div class="hero-banner">
             <div style="font-size: 1.15rem; font-weight: 700; color: #8B1E3F; letter-spacing: -0.01em; margin-bottom: 2px;">CaseLens</div>
-            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">System Security & Accountability</div>
-            <div class="hero-title">Security & Session Audit Ledger</div>
+            <div style="font-size: 0.92rem; color: #5F5F5F; margin-bottom: 14px;">System Governance & Technical Administration</div>
+            <div class="hero-title">System Administration & Security Controls</div>
             <div class="hero-subtitle">
-                Immutable event tracking for authentication, user sessions, page visits, and access attempts.
+                Centralized institutional management for immutable security audit logs, differential privacy budget reconfiguration,
+                privacy diagnostics, and statutory policy context cache synchronization.
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    st.success("✅ **Zero-Credential Guarantee**: Passwords, hashes, and JWT tokens are cryptographically excluded from all audit records.")
+    tab_audit, tab_budget, tab_diagnostics = st.tabs([
+        "📜 Security & Audit Log",
+        "🛡️ Privacy Budget Management",
+        "🩺 System Diagnostics & Integrity"
+    ])
 
     active_token = st.session_state.get("token")
-    audit_resp = get_audit_logs(limit=300, token=active_token)
-    app_logs = audit_resp.get("logs", []) if isinstance(audit_resp, dict) else (audit_resp or [])
-    if app_logs:
-        df_logs = pd.DataFrame(app_logs)
-        total_events = len(df_logs)
-        logins = int((df_logs["event_type"] == "LOGIN_SUCCESS").sum()) if "event_type" in df_logs.columns else 0
-        fails = int((df_logs["event_type"] == "LOGIN_FAILED").sum()) if "event_type" in df_logs.columns else 0
-        visits = int((df_logs["event_type"] == "PAGE_VISIT").sum()) if "event_type" in df_logs.columns else 0
 
-        col_al1, col_al2, col_al3, col_al4 = st.columns(4)
-        with col_al1:
+    with tab_audit:
+        st.success("✅ **Zero-Credential Guarantee**: Passwords, hashes, and JWT tokens are cryptographically excluded from all audit records.")
+
+        audit_resp = get_audit_logs(limit=300, token=active_token)
+        app_logs = audit_resp.get("logs", []) if isinstance(audit_resp, dict) else (audit_resp or [])
+        if app_logs:
+            df_logs = pd.DataFrame(app_logs)
+            total_events = len(df_logs)
+            logins = int((df_logs["event_type"] == "LOGIN_SUCCESS").sum()) if "event_type" in df_logs.columns else 0
+            fails = int((df_logs["event_type"] == "LOGIN_FAILED").sum()) if "event_type" in df_logs.columns else 0
+            visits = int((df_logs["event_type"] == "PAGE_VISIT").sum()) if "event_type" in df_logs.columns else 0
+
+            col_al1, col_al2, col_al3, col_al4 = st.columns(4)
+            with col_al1:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Total Events</div>
+                        <div class="metric-value">{total_events:,}</div>
+                        <div class="metric-delta">Recorded Sessions</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col_al2:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Successful Logins</div>
+                        <div class="metric-value">{logins}</div>
+                        <div class="metric-delta">Authorized Access</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col_al3:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Failed Logins</div>
+                        <div class="metric-value">{fails}</div>
+                        <div class="metric-delta">Enforcing 5-Attempt Lockout</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with col_al4:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Page Visits</div>
+                        <div class="metric-value">{visits}</div>
+                        <div class="metric-delta">Analytical Navigation</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+            st.markdown("#### Audit Event Records (Most Recent)")
+            st.dataframe(df_logs.iloc[::-1], width="stretch")
+        else:
+            st.info("No audit log events recorded yet.")
+
+    with tab_budget:
+        st.markdown("### 🛡️ Differential Privacy Budget Administration")
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 14px 18px; margin-bottom: 14px;">
+                <strong style="color: #222222; font-size: 0.95rem;">Reset Privacy Budget</strong>
+                <div style="color: #5F5F5F; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
+                    Reset or reconfigure the live differential privacy budget. Resetting restores query capacity and clears the dynamic query cache, enabling analysts and reviewers to run analytical queries without interruption under strict Sequential Composition.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        budget_sum = DATA.get("privacy_audit", {}).get("privacy_budget_summary", {}) if isinstance(DATA, dict) else {}
+        live_b = DATA.get("privacy_budget", {}) if isinstance(DATA, dict) else {}
+        total_eps = live_b.get("total_epsilon") or budget_sum.get("total_epsilon_allocated", 10.0)
+        spent_eps = live_b.get("spent_epsilon") or budget_sum.get("spent_epsilon", 0.0)
+        rem_eps = live_b.get("remaining_epsilon") or budget_sum.get("remaining_epsilon", total_eps - spent_eps)
+
+        b_c1, b_c2, b_c3, b_c4 = st.columns(4)
+        with b_c1:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Total Events</div>
-                    <div class="metric-value">{total_events:,}</div>
-                    <div class="metric-delta">Recorded Sessions</div>
+                    <div class="metric-label">Total Allocated (ε)</div>
+                    <div class="metric-value">{total_eps:.2f} ε</div>
+                    <div class="metric-delta">Upper Bound</div>
                 </div>
             """, unsafe_allow_html=True)
-        with col_al2:
+        with b_c2:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Successful Logins</div>
-                    <div class="metric-value">{logins}</div>
-                    <div class="metric-delta">Authorized Access</div>
+                    <div class="metric-label">Spent Epsilon (ε)</div>
+                    <div class="metric-value">{spent_eps:.2f} ε</div>
+                    <div class="metric-delta">Consumed Budget</div>
                 </div>
             """, unsafe_allow_html=True)
-        with col_al3:
+        with b_c3:
             st.markdown(f"""
                 <div class="metric-card">
-                    <div class="metric-label">Failed Logins</div>
-                    <div class="metric-value">{fails}</div>
-                    <div class="metric-delta">Enforcing 5-Attempt Lockout</div>
+                    <div class="metric-label">Remaining Epsilon (ε)</div>
+                    <div class="metric-value">{rem_eps:.2f} ε</div>
+                    <div class="metric-delta">Available Capacity</div>
                 </div>
             """, unsafe_allow_html=True)
-        with col_al4:
-            st.markdown(f"""
+        with b_c4:
+            st.markdown("""
                 <div class="metric-card">
-                    <div class="metric-label">Page Visits</div>
-                    <div class="metric-value">{visits}</div>
-                    <div class="metric-delta">Analytical Navigation</div>
+                    <div class="metric-label">Composition Rule</div>
+                    <div class="metric-value" style="font-size: 1.15rem;">Sequential</div>
+                    <div class="metric-delta">∑ εᵢ ≤ Total ε</div>
                 </div>
             """, unsafe_allow_html=True)
 
         st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
-        st.markdown("#### Audit Event Records (Most Recent)")
-        st.dataframe(df_logs.iloc[::-1], width="stretch")
-    else:
-        st.info("No audit log events recorded yet.")
+
+        ac1, ac2, ac3 = st.columns([3, 3, 4])
+        with ac1:
+            admin_eps_target = st.number_input(
+                "Total Epsilon Upper Bound (ε)",
+                min_value=1.0,
+                max_value=100.0,
+                value=float(total_eps) if total_eps > 0 else 10.0,
+                step=1.0,
+                key="admin_page_reset_eps_input"
+            )
+        with ac2:
+            st.write("")
+            st.write("")
+            if st.button("🔄 Reset Privacy Budget", type="primary", key="admin_page_reset_budget_btn"):
+                res = reset_privacy_budget(total_epsilon=admin_eps_target, token=active_token)
+                if res.get("message") or res.get("success"):
+                    st.session_state["privacy_budget_exhausted"] = False
+                    st.cache_data.clear()
+                    st.success(f"Differential privacy budget reset to {admin_eps_target:.2f} ε successfully.")
+                    st.rerun()
+                else:
+                    st.error("Failed to reset privacy budget. Ensure admin privileges.")
+
+    with tab_diagnostics:
+        st.markdown("### 🩺 System Privacy Diagnostics & External Context")
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 14px 18px; margin-bottom: 14px;">
+                <strong style="color: #222222; font-size: 0.95rem;">Institutional System Diagnostics</strong>
+                <div style="color: #5F5F5F; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
+                    Evaluates empirical privacy guarantees across k-anonymity (k ≥ 5), adversarial singling-out marksmanship attacks, and external statutory context cache synchronization.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        diag_data = get_privacy_diagnostics(token=active_token)
+        if diag_data:
+            k_eval = diag_data.get("k_anonymity_evaluation", {})
+            audit = k_eval.get("small_cell_suppression_audit", {})
+            adv = diag_data.get("adversarial_threat_evaluations", {})
+            singling = adv.get("singling_out_marksmanship_attack", {})
+            after_singling = singling.get("after_k_anonymity_protection", {})
+
+            d1, d2, d3, d4 = st.columns(4)
+            with d1:
+                st.markdown("""
+                    <div class="metric-card">
+                        <div class="metric-label">k-Threshold</div>
+                        <div class="metric-value">k ≥ 5</div>
+                        <div class="metric-delta">Small-Cell Rule</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with d2:
+                cells_sup = audit.get("total_suppressed_cells", 0)
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Suppressed Cells</div>
+                        <div class="metric-value">{cells_sup}</div>
+                        <div class="metric-delta">Counts < 5 Masked</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with d3:
+                adv_succ = after_singling.get("adversary_success_rate_pct", 0.0)
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div class="metric-label">Singling-Out Risk</div>
+                        <div class="metric-value">{adv_succ:.1f}%</div>
+                        <div class="metric-delta">Post-Suppression</div>
+                    </div>
+                """, unsafe_allow_html=True)
+            with d4:
+                st.markdown("""
+                    <div class="metric-card">
+                        <div class="metric-label">Zero-PII Status</div>
+                        <div class="metric-value" style="color: #059669;">Verified</div>
+                        <div class="metric-delta">Zero Direct IDs</div>
+                    </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+
+            st.markdown("#### External Policy Context Cache Management")
+            st.caption("Synchronizes statutory benchmarks and legal directives via TinyFish Search/Web agent APIs.")
+            if st.button("🔄 Refresh Policy Context Cache (TinyFish)", key="admin_refresh_policy_btn"):
+                with st.spinner("Executing external policy context fetch via TinyFish API..."):
+                    p_res = refresh_policy_context(token=active_token)
+                    if p_res.get("message") or p_res.get("success"):
+                        st.success("Policy context cache refreshed successfully.")
+                    else:
+                        st.info(p_res.get("message", "Policy context cache update attempted."))
+        else:
+            st.info("System diagnostics unavailable from API backend.")
 

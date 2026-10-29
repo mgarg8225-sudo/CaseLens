@@ -32,6 +32,7 @@ from enum import Enum
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Union, Set
 from urllib.parse import urlparse
+from contextlib import asynccontextmanager
 
 import numpy as np
 import pandas as pd
@@ -133,12 +134,47 @@ ROLE_HIERARCHY = {
     Role.VIEWER: 1,
 }
 
-# Standard API Keys for institutional roles (configurable via env)
-API_KEYS = {
-    os.environ.get("API_KEY_ADMIN", "admin-key-leaky-2026"): Role.ADMIN,
-    os.environ.get("API_KEY_ANALYST", "analyst-key-leaky-2026"): Role.ANALYST,
-    os.environ.get("API_KEY_VIEWER", "viewer-key-leaky-2026"): Role.VIEWER,
-}
+def is_production_mode() -> bool:
+    """Checks whether the environment is explicitly configured for production."""
+    env = os.environ.get("CASELENS_ENV") or os.environ.get("ENVIRONMENT") or os.environ.get("APP_ENV") or ""
+    return env.strip().lower() in ["production", "prod"]
+
+
+def get_configured_api_keys() -> Dict[str, Role]:
+    """
+    Resolves institutional API keys for API authentication.
+    Preserves local development functionality with fallback demo keys.
+    In production mode (CASELENS_ENV=production or ENVIRONMENT=production):
+      - Fallback demo keys are rejected to prevent default credential risks.
+      - Explicit environment variables (API_KEY_ADMIN, API_KEY_ANALYST, API_KEY_VIEWER)
+        must be configured; missing keys will not receive fallback defaults.
+    """
+    keys: Dict[str, Role] = {}
+    is_prod = is_production_mode()
+
+    admin_key = os.environ.get("API_KEY_ADMIN")
+    if admin_key:
+        keys[admin_key.strip()] = Role.ADMIN
+    elif not is_prod:
+        keys["admin-key-leaky-2026"] = Role.ADMIN
+
+    analyst_key = os.environ.get("API_KEY_ANALYST")
+    if analyst_key:
+        keys[analyst_key.strip()] = Role.ANALYST
+    elif not is_prod:
+        keys["analyst-key-leaky-2026"] = Role.ANALYST
+
+    viewer_key = os.environ.get("API_KEY_VIEWER")
+    if viewer_key:
+        keys[viewer_key.strip()] = Role.VIEWER
+    elif not is_prod:
+        keys["viewer-key-leaky-2026"] = Role.VIEWER
+
+    return keys
+
+
+# Standard API Keys for institutional roles (configurable via env / dynamic resolution)
+API_KEYS: Dict[str, Role] = get_configured_api_keys()
 
 
 # ==============================================================================
@@ -431,8 +467,9 @@ def get_current_user(
             )
 
     # 1. Match configured API Keys (via X-API-Key or Bearer <api-key>)
-    if token and token in API_KEYS:
-        role = API_KEYS[token]
+    active_keys = get_configured_api_keys()
+    if token and token in active_keys:
+        role = active_keys[token]
         return UserContext(user_id=f"key_{role.value}", role=role, auth_method="api_key")
 
     # 2. Test-isolated role header: strictly disallowed in production
@@ -527,6 +564,15 @@ def sanitize_and_verify_payload(
 # 7. FastAPI App Construction
 # ==============================================================================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Modern lifespan event handler replacing deprecated @app.on_event handlers."""
+    configured_eps = get_configured_total_budget()
+    DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
+    DATA_STORE.filter_cache.clear()
+    yield
+
+
 def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     """App factory function to initialize FastAPI with configured data directory."""
     global DATA_STORE
@@ -546,14 +592,9 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         ),
         version="1.0.0",
         docs_url="/docs",
-        redoc_url="/redoc"
+        redoc_url="/redoc",
+        lifespan=lifespan
     )
-
-    @app.on_event("startup")
-    def on_startup():
-        configured_eps = get_configured_total_budget()
-        DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
-        DATA_STORE.filter_cache.clear()
 
     # CORS configuration
     app.add_middleware(
@@ -577,15 +618,16 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
 
         # Read verified role if set, otherwise inspect credentials
         role_header = getattr(request.state, "user_role", None) or "unauthenticated"
+        active_keys = get_configured_api_keys()
         api_key = request.headers.get("X-API-Key")
-        if api_key in API_KEYS:
-            role_header = API_KEYS[api_key].value
+        if api_key in active_keys:
+            role_header = active_keys[api_key].value
         else:
             auth_hdr = request.headers.get("Authorization", "")
             if auth_hdr.lower().startswith("bearer "):
                 token_val = auth_hdr[7:].strip()
-                if token_val in API_KEYS:
-                    role_header = API_KEYS[token_val].value
+                if token_val in active_keys:
+                    role_header = active_keys[token_val].value
                 elif token_val.count(".") == 2:
                     try:
                         from src.auth import decode_access_token

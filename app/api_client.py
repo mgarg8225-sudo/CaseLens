@@ -186,7 +186,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🛡️ Privacy & Protection",
         "📜 Policy Insights",
         "🔍 Case Review",
-        "📜 Audit Log"
+        "⚙️ Administration"
     ]
 }
 
@@ -218,7 +218,11 @@ PAGE_ALIASES: Dict[str, str] = {
     "case review": "case review",
     "case simulator": "policy impact",
     "review queue": "review queue",
-    "audit log": "audit log",
+    "audit log": "administration",
+    "audit": "administration",
+    "security audit": "administration",
+    "administration": "administration",
+    "system administration": "administration",
     "executive overview": "executive overview",
     "analyze your data": "analyze your data",
 }
@@ -258,6 +262,8 @@ def check_user_permission(role: Optional[str], page: str) -> bool:
     if "review queue" in p_clean:
         return norm_r == "admin"
     if "audit log" in p_clean or p_clean == "audit":
+        return norm_r == "admin"
+    if "administration" in p_clean or "admin" in p_clean:
         return norm_r == "admin"
 
     # Analyst+ features / routes
@@ -820,6 +826,18 @@ def reset_privacy_budget(
     except Exception as exc:
         _handle_request_error(exc, url)
     return {"message": "Failed to reset privacy budget", "success": False}
+
+
+def refresh_policy_context(token: Optional[str] = None, timeout: int = 20) -> Dict[str, Any]:
+    """Triggers an external policy context refresh (POST /api/v1/policy-context/refresh). Admin only."""
+    url = f"{get_api_base_url()}/api/v1/policy-context/refresh"
+    try:
+        resp = requests.post(url, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            return resp.json()
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"message": "Policy context refresh failed or unavailable", "success": False}
 
 
 def log_audit_event(

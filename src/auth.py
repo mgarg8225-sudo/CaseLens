@@ -563,18 +563,20 @@ def get_current_authenticated_user(
                 auth_method="jwt"
             )
         # Check if Bearer token matches configured API keys
-        from src.api import API_KEYS, Role
-        if raw_token in API_KEYS:
-            role_enum = API_KEYS[raw_token]
+        from src.api import get_configured_api_keys, Role
+        active_keys = get_configured_api_keys()
+        if raw_token in active_keys:
+            role_enum = active_keys[raw_token]
             mapped_role = "admin" if role_enum == Role.ADMIN else ("linkage_reviewer" if role_enum == Role.ANALYST else "public_viewer")
             return UserContext(user_id=f"key_{role_enum.value}", username=f"key_{role_enum.value}", role=mapped_role, auth_method="api_key")
 
     # 2. Check X-API-Key against configured API keys
     if x_api_key:
         key_str = x_api_key.strip()
-        from src.api import API_KEYS, Role
-        if key_str in API_KEYS:
-            role_enum = API_KEYS[key_str]
+        from src.api import get_configured_api_keys, Role
+        active_keys = get_configured_api_keys()
+        if key_str in active_keys:
+            role_enum = active_keys[key_str]
             mapped_role = "admin" if role_enum == Role.ADMIN else ("linkage_reviewer" if role_enum == Role.ANALYST else "public_viewer")
             return UserContext(user_id=f"key_{role_enum.value}", username=f"key_{role_enum.value}", role=mapped_role, auth_method="api_key")
 
@@ -715,7 +717,7 @@ ROLE_PERMISSIONS: Dict[str, List[str]] = {
         "🛡️ Privacy & Protection",
         "📜 Policy Insights",
         "🔍 Case Review",
-        "📜 Audit Log"
+        "⚙️ Administration"
     ]
 }
 
@@ -747,7 +749,11 @@ PAGE_ALIASES: Dict[str, str] = {
     "case review": "case review",
     "case simulator": "policy impact",
     "review queue": "review queue",
-    "audit log": "audit log",
+    "audit log": "administration",
+    "audit": "administration",
+    "security audit": "administration",
+    "administration": "administration",
+    "system administration": "administration",
     "executive overview": "executive overview",
     "analyze your data": "analyze your data",
 }
@@ -790,6 +796,8 @@ def check_user_permission(role: Optional[str], page: str) -> bool:
     if "review queue" in p_clean:
         return norm_r == "admin"
     if "audit log" in p_clean or p_clean == "audit":
+        return norm_r == "admin"
+    if "administration" in p_clean or "admin" in p_clean:
         return norm_r == "admin"
 
     # Analyst+ features / routes

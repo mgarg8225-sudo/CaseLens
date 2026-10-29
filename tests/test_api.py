@@ -493,3 +493,32 @@ def test_case_explorer_api_endpoints(api_client):
     assert "pairwise_results" in rnd_case
     assert "timeline" in rnd_case
 
+
+def test_production_api_key_configuration(api_client, monkeypatch):
+    """
+    Verifies that in production mode (CASELENS_ENV='production'):
+    - Default fallback demo keys are rejected (HTTP 401).
+    - Explicitly configured environment variables (API_KEY_ADMIN, etc.) work as expected.
+    """
+    # 1. In production mode with no explicit keys set, fallback demo key fails
+    monkeypatch.setenv("CASELENS_ENV", "production")
+    monkeypatch.delenv("API_KEY_ADMIN", raising=False)
+    monkeypatch.delenv("API_KEY_ANALYST", raising=False)
+    monkeypatch.delenv("API_KEY_VIEWER", raising=False)
+
+    res_fallback = api_client.get(
+        "/api/v1/districts",
+        headers={"X-API-Key": "admin-key-leaky-2026"}
+    )
+    assert res_fallback.status_code == 401, "Fallback demo key must be rejected in production mode"
+
+    # 2. When explicit API key is configured via environment variable in production
+    test_prod_key = "secure-prod-key-xyz-789"
+    monkeypatch.setenv("API_KEY_ADMIN", test_prod_key)
+
+    res_configured = api_client.get(
+        "/api/v1/districts",
+        headers={"X-API-Key": test_prod_key}
+    )
+    assert res_configured.status_code == 200, "Explicitly configured environment API key must succeed in production"
+
