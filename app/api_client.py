@@ -799,6 +799,52 @@ def get_audit_logs(
     return {"logs": [], "total_logs_returned": 0}
 
 
+def get_privacy_settings(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """
+    Retrieves current differential privacy configuration and budget status (GET /api/v1/privacy/settings).
+    Accessible to all authenticated users (read-only for Viewers and Analysts).
+    """
+    url = f"{get_api_base_url()}/api/v1/privacy/settings"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            return resp.json()
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"epsilon": 0.25, "k_threshold": 5, "total_epsilon": 10.0, "remaining_epsilon": 10.0, "can_modify": False}
+
+
+def update_privacy_settings(
+    epsilon: Optional[float] = None,
+    k_threshold: Optional[int] = None,
+    total_epsilon: Optional[float] = None,
+    total_delta: Optional[float] = None,
+    token: Optional[str] = None,
+    timeout: int = 10
+) -> Dict[str, Any]:
+    """
+    Reconfigures differential privacy noise levels and k-anonymity suppression thresholds.
+    Calls POST /api/v1/privacy/settings. Accessible exclusively to Administrators.
+    """
+    url = f"{get_api_base_url()}/api/v1/privacy/settings"
+    payload: Dict[str, Any] = {}
+    if epsilon is not None:
+        payload["epsilon"] = float(epsilon)
+    if k_threshold is not None:
+        payload["k_threshold"] = int(k_threshold)
+    if total_epsilon is not None:
+        payload["total_epsilon"] = float(total_epsilon)
+    if total_delta is not None:
+        payload["total_delta"] = float(total_delta)
+    try:
+        resp = requests.post(url, json=payload, headers=_build_headers(token), timeout=timeout)
+        if _handle_response_status(resp):
+            return resp.json()
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"message": "Failed to update privacy settings", "success": False}
+
+
 def reset_privacy_budget(
     total_epsilon: Optional[float] = None,
     total_delta: float = 1e-4,

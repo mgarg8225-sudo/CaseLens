@@ -53,6 +53,8 @@ from app.api_client import (
     get_review_queue,
     get_audit_logs,
     reset_privacy_budget,
+    get_privacy_settings,
+    update_privacy_settings,
     refresh_policy_context,
     log_audit_event,
     load_dashboard_bundle,
@@ -1044,24 +1046,9 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
             help="Filter to case trajectories that reached this institutional milestone."
         )
 
-        st.markdown("---")
-        st.markdown("### 🔒 Privacy Controls")
-        EPSILON_SIM = st.slider(
-            r"Epsilon ($\epsilon$) Noise Level",
-            min_value=0.1,
-            max_value=2.0,
-            value=0.25,
-            step=0.05,
-            help="Lower epsilon draws stronger Laplace noise for higher survivor confidentiality."
-        )
-        K_ANONYMITY = st.number_input(
-            "k-Anonymity Suppression Threshold",
-            min_value=3,
-            max_value=20,
-            value=5,
-            step=1,
-            help="Cells with fewer than k cases are strictly suppressed as '<k'."
-        )
+    # Privacy configurations: Managed exclusively under Administration -> Privacy Budget Management
+    EPSILON_SIM = float(st.session_state.get("privacy_epsilon", 0.25))
+    K_ANONYMITY = int(st.session_state.get("privacy_k_anonymity", 5))
 
     # Server-side filter normalization
     sel_district = None if FILTER_DISTRICT == "All Districts" else FILTER_DISTRICT
@@ -1073,11 +1060,26 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
     if FILTER_TO and FILTER_TO < datetime(2026, 11, 27).date():
         sel_to = str(FILTER_TO)
 
-    # Resolve active dashboard dataset: Only populated when an analysis has been executed!
+    # Resolve active dashboard dataset: dynamically recomputed on filter changes!
     active_ds_id = st.session_state.get("active_dataset_id")
     active_bundle = st.session_state.get("active_dataset_bundle")
+    active_res = st.session_state.get("active_analysis_result")
 
-    if active_ds_id and active_bundle:
+    if active_ds_id and active_res:
+        target_res = dict(active_res)
+        if active_ds_id == "case":
+            target_res["is_single_case"] = True
+        DATA = build_dashboard_bundle_from_analysis(
+            target_res,
+            district=sel_district,
+            from_date=sel_from,
+            to_date=sel_to,
+            stage=sel_stage,
+            epsilon=EPSILON_SIM,
+            k_threshold=K_ANONYMITY
+        )
+        KPIS = compute_dashboard_kpis(DATA)
+    elif active_ds_id and active_bundle:
         DATA = active_bundle
         KPIS = compute_dashboard_kpis(DATA)
     else:
@@ -3741,6 +3743,61 @@ elif PAGE in ["⚙️ Administration", "📜 Audit Log", "🔐 Audit Log"]:
                     st.rerun()
                 else:
                     st.error("Failed to reset privacy budget. Ensure admin privileges.")
+
+        st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown("#### ⚙️ Analytical Privacy Protection Parameters")
+        st.markdown("""
+            <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 4px solid #1E555C; border-radius: 4px; padding: 14px 18px; margin-bottom: 14px;">
+                <strong style="color: #222222; font-size: 0.95rem;">Epsilon Noise Level & k-Anonymity Suppression Threshold</strong>
+                <div style="color: #5F5F5F; font-size: 0.85rem; margin-top: 4px; line-height: 1.4;">
+                    Configure system-wide differential privacy Laplace noise scale (&epsilon;) and small-cell suppression (<em>k</em>-anonymity threshold).
+                    Higher &epsilon; provides tighter analytical confidence margins with less perturbation; lower &epsilon; maximizes mathematical confidentiality guarantees.
+                    Quasi-identifier groups with case counts strictly below <em>k</em> are suppressed as <code>&lt;k</code> across all published aggregations.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
+        current_eps = float(st.session_state.get("privacy_epsilon", 0.25))
+        current_k = int(st.session_state.get("privacy_k_anonymity", 5))
+
+        col_p1, col_p2 = st.columns(2)
+        with col_p1:
+            admin_eps_val = st.slider(
+                r"Epsilon ($\epsilon$) Noise Level",
+                min_value=0.05,
+                max_value=2.0,
+                value=current_eps,
+                step=0.05,
+                key="admin_privacy_epsilon_slider",
+                help="Calibrates Laplace mechanism noise (scale b = 1/ε). Lower ε draws heavier noise."
+            )
+        with col_p2:
+            admin_k_val = st.number_input(
+                "k-Anonymity Suppression Threshold",
+                min_value=3,
+                max_value=20,
+                value=current_k,
+                step=1,
+                key="admin_privacy_k_input",
+                help="Quasi-identifier groups and cell counts below k are strictly suppressed."
+            )
+
+        if st.button("💾 Apply Privacy Settings", type="primary", key="admin_apply_privacy_settings_btn"):
+            res = update_privacy_settings(
+                epsilon=admin_eps_val,
+                k_threshold=admin_k_val,
+                token=active_token
+            )
+            if res.get("status") == "success" or res.get("message") or "epsilon" in res:
+                st.session_state["privacy_epsilon"] = admin_eps_val
+                st.session_state["privacy_k_anonymity"] = admin_k_val
+                st.cache_data.clear()
+                st.success(f"Privacy parameters updated: ε = {admin_eps_val:.2f}, k = {admin_k_val}. Applied across all analytical views.")
+                st.rerun()
+            else:
+                st.error(f"Failed to update privacy settings: {res.get('message', 'Ensure admin privileges.')}")
+
 
     with tab_diagnostics:
         st.markdown("### 🩺 System Privacy Diagnostics & External Context")

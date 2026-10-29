@@ -431,3 +431,191 @@ def test_privacy_diagnostics_reflects_live_budget(api_client, admin_headers):
     assert budget_sum["remaining_epsilon"] == 12.5
     assert budget_sum["spent_epsilon"] == 0.0
 
+
+# ==============================================================================
+# 11. Role-Based Privacy Settings & Viewer Modification Restriction Tests
+# ==============================================================================
+
+def test_privacy_settings_endpoint_permissions(api_client, admin_headers, auth_headers):
+    """
+    Verifies Phase 2 Privacy Settings RBAC:
+    - Viewers and Analysts have read-only access (GET /api/v1/privacy/settings).
+    - Viewers and Analysts CANNOT update privacy settings (POST /api/v1/privacy/settings -> 403 Forbidden).
+    - Viewers CANNOT override privacy parameters via query strings (?epsilon=0.5 -> 403 Forbidden).
+    - Admins CAN update privacy settings (POST /api/v1/privacy/settings -> 200 OK).
+    """
+    viewer_headers = {"X-API-Key": "viewer-key-leaky-2026"}
+
+    # 1. Read-only access for Viewer
+    res_get_viewer = api_client.get("/api/v1/privacy/settings", headers=viewer_headers)
+    assert res_get_viewer.status_code == 200
+    data_v = res_get_viewer.json()
+    assert "epsilon" in data_v
+    assert "k_threshold" in data_v
+    assert data_v["can_modify"] is False
+    assert data_v["user_role"] == "viewer"
+
+    # 2. Read-only access for Analyst
+    res_get_analyst = api_client.get("/api/v1/privacy/settings", headers=auth_headers)
+    assert res_get_analyst.status_code == 200
+    data_a = res_get_analyst.json()
+    assert data_a["can_modify"] is False
+
+    # 3. Viewer blocked from updating privacy settings
+    res_post_viewer = api_client.post(
+        "/api/v1/privacy/settings",
+        json={"epsilon": 0.50, "k_threshold": 10},
+        headers=viewer_headers
+    )
+    assert res_post_viewer.status_code == 403
+    assert "Forbidden" in res_post_viewer.json()["detail"]
+
+    # 4. Analyst blocked from updating privacy settings
+    res_post_analyst = api_client.post(
+        "/api/v1/privacy/settings",
+        json={"epsilon": 0.50, "k_threshold": 10},
+        headers=auth_headers
+    )
+    assert res_post_analyst.status_code == 403
+
+    # 5. Viewer blocked from modifying privacy parameters on aggregate endpoints
+    res_funnel_override_eps = api_client.get(
+        "/api/v1/funnel?epsilon=0.50",
+        headers=viewer_headers
+    )
+    assert res_funnel_override_eps.status_code == 403
+    assert "Forbidden" in res_funnel_override_eps.json()["detail"]
+
+    res_funnel_override_k = api_client.get(
+        "/api/v1/funnel?k_threshold=10",
+        headers=viewer_headers
+    )
+    assert res_funnel_override_k.status_code == 403
+
+    # 6. Admin can update privacy settings
+    res_post_admin = api_client.post(
+        "/api/v1/privacy/settings",
+        json={"epsilon": 0.35, "k_threshold": 7, "total_epsilon": 15.0},
+        headers=admin_headers
+    )
+    assert res_post_admin.status_code == 200
+    admin_body = res_post_admin.json()
+    assert admin_body["epsilon"] == 0.35
+    assert admin_body["k_threshold"] == 7
+    assert admin_body["total_epsilon"] == 15.0
+
+    # Verify read endpoint reflects updated settings
+    res_verify = api_client.get("/api/v1/privacy/settings", headers=admin_headers)
+    assert res_verify.status_code == 200
+    assert res_verify.json()["epsilon"] == 0.35
+    assert res_verify.json()["k_threshold"] == 7
+    assert res_verify.json()["can_modify"] is True
+
+    # Restore defaults for other tests
+    api_client.post(
+        "/api/v1/privacy/settings",
+        json={"epsilon": 0.25, "k_threshold": 5, "total_epsilon": 10.0},
+        headers=admin_headers
+    )
+
+
+# ==============================================================================
+# 12. Active Uploaded Dataset Global Filtering Consistency Tests
+# ==============================================================================
+
+def test_uploaded_dataset_global_filtering_consistency():
+    """
+    Verifies that build_dashboard_bundle_from_analysis dynamically applies
+    shared analytical filters (District, From/To Date, Stage) and privacy parameters
+    to uploaded datasets without altering baseline artifacts.
+    """
+    from src.upload_analysis import build_dashboard_bundle_from_analysis
+
+    # Mock multi-case analysis result with 2 districts
+    mock_events = [
+        # Case 1 in D1_Suryapur
+        {"case_id": "C-1", "district": "D1_Suryapur", "timestamp": "2024-01-10T10:00:00", "activity": "FIR_REGISTERED", "case_category": "trafficking"},
+        {"case_id": "C-1", "district": "D1_Suryapur", "timestamp": "2024-01-15T12:00:00", "activity": "MEDICAL_EXAM", "case_category": "trafficking"},
+        {"case_id": "C-1", "district": "D1_Suryapur", "timestamp": "2024-02-01T10:00:00", "activity": "CHARGESHEET_FILED", "case_category": "trafficking"},
+        {"case_id": "C-1", "district": "D1_Suryapur", "timestamp": "2024-06-01T10:00:00", "activity": "COURT_VERDICT", "case_category": "trafficking"},
+        # Case 2 in D1_Suryapur
+        {"case_id": "C-2", "district": "D1_Suryapur", "timestamp": "2024-02-10T10:00:00", "activity": "FIR_REGISTERED", "case_category": "sexual_assault"},
+        {"case_id": "C-2", "district": "D1_Suryapur", "timestamp": "2024-02-15T12:00:00", "activity": "MEDICAL_EXAM", "case_category": "sexual_assault"},
+        # Case 3 in D3_Rudrapur
+        {"case_id": "C-3", "district": "D3_Rudrapur", "timestamp": "2024-03-01T10:00:00", "activity": "FIR_REGISTERED", "case_category": "trafficking"},
+        {"case_id": "C-3", "district": "D3_Rudrapur", "timestamp": "2024-03-05T12:00:00", "activity": "MEDICAL_EXAM", "case_category": "trafficking"},
+        {"case_id": "C-3", "district": "D3_Rudrapur", "timestamp": "2024-04-01T10:00:00", "activity": "FORENSIC_REPORT", "case_category": "trafficking"},
+    ]
+
+    mock_analysis = {
+        "status": "success",
+        "events": mock_events,
+        "summary_kpis": {
+            "total_cases": 3,
+            "fir_cases": 3,
+            "verdict_cases": 1,
+            "fir_rate_pct": 100.0,
+            "verdict_rate_pct": 33.3,
+            "one_line_insight": "Active cohort insight"
+        },
+        "funnel_stages": [
+            {"stage_id": "FIR_REGISTERED", "stage_name": "Police FIR", "raw_count": 3, "retention_pct": 100.0},
+            {"stage_id": "MEDICAL_EXAM", "stage_name": "Hospital MLC", "raw_count": 3, "retention_pct": 100.0},
+            {"stage_id": "FORENSIC_REPORT", "stage_name": "Forensic Lab", "raw_count": 1, "retention_pct": 33.3},
+            {"stage_id": "CHARGESHEET_FILED", "stage_name": "Chargesheet Filed", "raw_count": 1, "retention_pct": 33.3},
+            {"stage_id": "COURT_VERDICT", "stage_name": "Court Verdict", "raw_count": 1, "retention_pct": 33.3},
+        ],
+        "bottlenecks": {
+            "transitions": {
+                "FIR_REGISTERED -> MEDICAL_EXAM": {"median_days": 5.0, "p95_days": 5.0, "count": 3}
+            }
+        },
+        "district_ranking": [
+            {"district": "D1_Suryapur", "attrition_rate_pct": 50.0, "vulnerability_score": 50.0},
+            {"district": "D3_Rudrapur", "attrition_rate_pct": 100.0, "vulnerability_score": 100.0}
+        ],
+        "privacy_info": {"masked_fields": ["survivor_name"], "suppressed_groups": []}
+    }
+
+    # 1. Baseline unfiltered bundle
+    bundle_all = build_dashboard_bundle_from_analysis(mock_analysis, epsilon=0.25, k_threshold=5)
+    assert bundle_all["summary"]["pipeline_health"]["total_reconstructed_cases"] == 3
+
+    # 2. District filter: D1_Suryapur (2 cases)
+    bundle_d1 = build_dashboard_bundle_from_analysis(mock_analysis, district="D1_Suryapur", epsilon=0.25, k_threshold=5)
+    assert bundle_d1["summary"]["pipeline_health"]["total_reconstructed_cases"] == 2
+    # Verify D3 is not in district leakage for D1 filter
+    dists_in_d1 = [d["district"] for d in bundle_d1.get("dp_districts", {}).get("districts", [])]
+    if dists_in_d1:
+        assert "D3_Rudrapur" not in dists_in_d1
+
+    # 3. District filter: D3_Rudrapur (1 case)
+    bundle_d3 = build_dashboard_bundle_from_analysis(mock_analysis, district="D3_Rudrapur", epsilon=0.25, k_threshold=5)
+    assert bundle_d3["summary"]["pipeline_health"]["total_reconstructed_cases"] == 1
+
+    # 4. Date window filter: 2024-02-01 to 2024-02-28 (Only Case 2 started in Feb)
+    bundle_date = build_dashboard_bundle_from_analysis(
+        mock_analysis,
+        from_date="2024-02-01",
+        to_date="2024-02-28",
+        epsilon=0.25,
+        k_threshold=5
+    )
+    assert bundle_date["summary"]["pipeline_health"]["total_reconstructed_cases"] == 1
+
+    # 5. Stage filter: Court Verdict (Only Case 1 reached Court Verdict)
+    bundle_verdict = build_dashboard_bundle_from_analysis(
+        mock_analysis,
+        stage="5. Court Verdict",
+        epsilon=0.25,
+        k_threshold=5
+    )
+    assert bundle_verdict["summary"]["pipeline_health"]["total_reconstructed_cases"] == 1
+
+    # 6. Privacy parameter changes: k_threshold suppression
+    bundle_k10 = build_dashboard_bundle_from_analysis(mock_analysis, epsilon=0.50, k_threshold=10)
+    for s in bundle_k10["dp_funnel"]["funnel_stages"]:
+        assert s["is_k_anonymity_suppressed"] is True
+        assert s["display_count"] == "<10"
+
+

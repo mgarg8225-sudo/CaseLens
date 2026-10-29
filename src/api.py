@@ -218,6 +218,13 @@ class ResetBudgetRequest(BaseModel):
     total_delta: float = Field(default=1e-4, gt=0.0, le=1e-2)
 
 
+class UpdatePrivacySettingsRequest(BaseModel):
+    epsilon: Optional[float] = Field(default=None, ge=0.01, le=2.0, description="Differential privacy epsilon noise level (0.01 <= eps <= 2.0)")
+    k_threshold: Optional[int] = Field(default=None, ge=3, le=20, description="Small-cell k-anonymity suppression threshold (3 <= k <= 20)")
+    total_epsilon: Optional[float] = Field(default=None, gt=0.0, le=1000.0, description="Differential privacy upper bound budget")
+    total_delta: Optional[float] = Field(default=None, gt=0.0, le=1e-2, description="Differential privacy delta parameter")
+
+
 class SimulatorRunRequest(BaseModel):
     scenario_key: Optional[str] = None
     custom_records: Optional[List[Dict[str, Any]]] = None
@@ -343,6 +350,8 @@ class DataStore:
         self.data_dir = data_dir
         configured_eps = get_configured_total_budget()
         self.budget_tracker = PrivacyBudgetTracker(total_epsilon=configured_eps, total_delta=1e-4)
+        self.default_epsilon: float = 0.25
+        self.k_threshold: int = 5
         self.audit_logger = ApiAuditLogger(os.path.join(data_dir, "api_audit_log.json"))
         self.dp_funnel: Dict[str, Any] = {}
         self.dp_districts: Dict[str, Any] = {}
@@ -569,6 +578,8 @@ async def lifespan(app: FastAPI):
     """Modern lifespan event handler replacing deprecated @app.on_event handlers."""
     configured_eps = get_configured_total_budget()
     DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
+    DATA_STORE.default_epsilon = 0.25
+    DATA_STORE.k_threshold = 5
     DATA_STORE.filter_cache.clear()
     yield
 
@@ -848,6 +859,29 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         Dynamically recomputed server-side for selected global filters.
         Returns Laplace DP noisy counts, DP retention %, and 95% Confidence Bounds.
         """
+        # Viewers must not modify privacy settings
+        if user.role == Role.VIEWER:
+            q_eps = request.query_params.get("epsilon")
+            q_k = request.query_params.get("k_threshold")
+            if q_eps is not None:
+                try:
+                    if abs(float(q_eps) - 0.10) > 1e-4 and abs(float(q_eps) - DATA_STORE.default_epsilon) > 1e-4:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Forbidden: Viewers are not permitted to modify differential privacy epsilon settings."
+                        )
+                except ValueError:
+                    pass
+            if q_k is not None:
+                try:
+                    if int(q_k) != 5 and int(q_k) != DATA_STORE.k_threshold:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Forbidden: Viewers are not permitted to modify k-anonymity suppression thresholds."
+                        )
+                except ValueError:
+                    pass
+
         eps = epsilon
         data, eps_spent, cached = handle_filtered_query(
             f"funnel_k{k_threshold}", district, from_date, to_date, stage, category, eps,
@@ -1391,6 +1425,59 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             "logs": logs
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="admin_audit_logs")
+
+    @app.get("/api/v1/privacy/settings", tags=["Privacy Management"])
+    def get_privacy_settings(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Retrieves active differential privacy parameters and budget status.
+        Accessible to all authenticated users (read-only for Viewers and Analysts).
+        """
+        payload = {
+            "status": "success",
+            "epsilon": getattr(DATA_STORE, "default_epsilon", 0.25),
+            "k_threshold": getattr(DATA_STORE, "k_threshold", 5),
+            "total_epsilon": round(DATA_STORE.budget_tracker.total_epsilon, 4),
+            "spent_epsilon": round(DATA_STORE.budget_tracker.spent_epsilon, 4),
+            "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+            "total_delta": DATA_STORE.budget_tracker.total_delta,
+            "user_role": user.role.value,
+            "can_modify": user.role == Role.ADMIN
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="privacy_settings_get")
+
+    @app.post("/api/v1/privacy/settings", tags=["Admin Controls"])
+    def update_privacy_settings(
+        request_body: UpdatePrivacySettingsRequest,
+        user: UserContext = Depends(require_role(Role.ADMIN))
+    ):
+        """
+        Reconfigures differential privacy noise levels and k-anonymity suppression thresholds.
+        Accessible exclusively to Administrators. Viewers and Analysts are strictly forbidden (HTTP 403).
+        """
+        if request_body.epsilon is not None:
+            DATA_STORE.default_epsilon = float(request_body.epsilon)
+        if request_body.k_threshold is not None:
+            DATA_STORE.k_threshold = int(request_body.k_threshold)
+        if request_body.total_epsilon is not None or request_body.total_delta is not None:
+            new_eps = request_body.total_epsilon if request_body.total_epsilon is not None else DATA_STORE.budget_tracker.total_epsilon
+            new_delta = request_body.total_delta if request_body.total_delta is not None else DATA_STORE.budget_tracker.total_delta
+            DATA_STORE.budget_tracker = PrivacyBudgetTracker(
+                total_epsilon=new_eps,
+                total_delta=new_delta
+            )
+        DATA_STORE.filter_cache.clear()
+
+        payload = {
+            "message": "Privacy settings successfully updated by Administrator.",
+            "epsilon": DATA_STORE.default_epsilon,
+            "k_threshold": DATA_STORE.k_threshold,
+            "total_epsilon": round(DATA_STORE.budget_tracker.total_epsilon, 4),
+            "remaining_epsilon": round(DATA_STORE.budget_tracker.remaining_epsilon, 4),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="privacy_settings_update")
 
     @app.post("/api/v1/privacy/budget/reset", tags=["Admin Controls"])
     def reset_privacy_budget(
