@@ -225,6 +225,10 @@ class UpdatePrivacySettingsRequest(BaseModel):
     total_delta: Optional[float] = Field(default=None, gt=0.0, le=1e-2, description="Differential privacy delta parameter")
 
 
+class SetActiveDatasetRequest(BaseModel):
+    dataset_id: str = Field(..., description="Unique ID of the registered dataset to activate")
+
+
 class SimulatorRunRequest(BaseModel):
     scenario_key: Optional[str] = None
     custom_records: Optional[List[Dict[str, Any]]] = None
@@ -364,7 +368,91 @@ class DataStore:
         self.df_cases: Optional[pd.DataFrame] = None
         self.df_events: Optional[pd.DataFrame] = None
         self.filter_cache: Dict[str, Any] = {}
+        self.active_dataset_id: Optional[str] = None
+        self.active_dataset_label: Optional[str] = None
+        self.active_analysis_result: Optional[Dict[str, Any]] = None
+        self.active_dataset_updated_at: Optional[str] = None
+        self.active_dataset_updated_by: Optional[str] = None
+        self.registered_datasets: Dict[str, Dict[str, Any]] = {}
         self.load_data()
+        self._load_active_registry()
+
+    def _registry_file_path(self) -> str:
+        return os.path.join(self.data_dir, "active_analysis_registry.json")
+
+    def _load_active_registry(self):
+        f_path = self._registry_file_path()
+        if os.path.exists(f_path):
+            try:
+                with open(f_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.active_dataset_id = data.get("active_dataset_id")
+                    self.active_dataset_label = data.get("active_dataset_label")
+                    self.active_analysis_result = data.get("active_analysis_result")
+                    self.active_dataset_updated_at = data.get("active_dataset_updated_at")
+                    self.active_dataset_updated_by = data.get("active_dataset_updated_by")
+                    self.registered_datasets = data.get("registered_datasets", {})
+            except Exception:
+                pass
+
+    def _persist_active_registry(self):
+        try:
+            f_path = self._registry_file_path()
+            payload = {
+                "active_dataset_id": self.active_dataset_id,
+                "active_dataset_label": self.active_dataset_label,
+                "active_analysis_result": self.active_analysis_result,
+                "active_dataset_updated_at": self.active_dataset_updated_at,
+                "active_dataset_updated_by": self.active_dataset_updated_by,
+                "registered_datasets": self.registered_datasets
+            }
+            os.makedirs(os.path.dirname(os.path.abspath(f_path)), exist_ok=True)
+            with open(f_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2)
+        except Exception:
+            pass
+
+    def set_active_dataset(
+        self,
+        dataset_id: str,
+        label: str,
+        analysis_result: Dict[str, Any],
+        user_id: str = "system"
+    ):
+        """Sets and registers active analysis dataset for cross-session access."""
+        now_ts = datetime.now(timezone.utc).isoformat()
+        self.active_dataset_id = dataset_id
+        self.active_dataset_label = label
+        self.active_analysis_result = analysis_result
+        self.active_dataset_updated_at = now_ts
+        self.active_dataset_updated_by = user_id
+        total_cases = analysis_result.get("summary_kpis", {}).get("total_cases") or analysis_result.get("funnel", {}).get("total_cases", 0)
+        self.registered_datasets[dataset_id] = {
+            "dataset_id": dataset_id,
+            "dataset_label": label,
+            "analysis_result": analysis_result,
+            "total_cases": total_cases,
+            "updated_at": now_ts,
+            "updated_by": user_id
+        }
+        self.filter_cache.clear()
+        self._persist_active_registry()
+
+    def clear_active_dataset(self):
+        """Clears active analysis dataset across all sessions."""
+        self.active_dataset_id = None
+        self.active_dataset_label = None
+        self.active_analysis_result = None
+        self.active_dataset_updated_at = None
+        self.active_dataset_updated_by = None
+        self.registered_datasets.clear()
+        self.filter_cache.clear()
+        f_path = self._registry_file_path()
+        if os.path.exists(f_path):
+            try:
+                os.remove(f_path)
+            except Exception:
+                pass
 
     def load_data(self):
         """Loads precomputed JSON artifacts and event log if available."""
