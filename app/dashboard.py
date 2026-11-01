@@ -68,6 +68,10 @@ from app.api_client import (
     run_analyze_sample,
     run_analyze_upload,
     run_analyze_case,
+    get_active_dataset,
+    get_available_datasets,
+    set_active_dataset,
+    clear_active_dataset,
 )
 from src.upload_analysis import build_dashboard_bundle_from_analysis
 
@@ -563,51 +567,68 @@ def request_navigation(page_name: str):
 
 def render_no_active_dataset_banner():
     """Renders user-requested message when no dataset is analyzed yet."""
-    st.markdown("""
+    u_role = normalize_role(st.session_state.get("role") or st.session_state.get("user", {}).get("role"))
+    is_viewer = (u_role == "viewer")
+
+    if is_viewer:
+        banner_title = "No dataset analyzed yet."
+        banner_desc = (
+            "To protect survivor privacy and ensure analytical integrity, CaseLens does not show unverified pre-populated microdata. "
+            "An authorized Institutional Analyst or Administrator must upload and analyze multi-agency dataset tables "
+            "before aggregate analytics become visible for viewing."
+        )
+    else:
+        banner_title = "No dataset analyzed yet. Upload CSVs or run sample analysis to populate the dashboard."
+        banner_desc = (
+            "To protect survivor privacy and ensure analytical integrity, CaseLens does not show default pre-populated microdata. "
+            "Please upload your 5 multi-agency CSV tables (Police FIR, Hospital MLC, Forensic Lab, Prosecution, Court) "
+            "or run the benchmark sample analysis in the <strong>Analyze Your Data</strong> view."
+        )
+
+    st.markdown(f"""
         <div style="background: #FFFFFF; border: 1px solid #CBD5E1; border-left: 4px solid #8B1E3F; border-radius: 4px; padding: 24px 28px; margin: 24px 0;">
             <div style="display: flex; align-items: flex-start; gap: 14px;">
                 <div style="font-size: 1.8rem; line-height: 1;">ℹ️</div>
                 <div>
                     <div style="font-size: 1.15rem; font-weight: 700; color: #222222; margin-bottom: 6px;">
-                        No dataset analyzed yet. Upload CSVs or run sample analysis to populate the dashboard.
+                        {banner_title}
                     </div>
                     <div style="font-size: 0.88rem; color: #5F5F5F; line-height: 1.5; margin-bottom: 16px;">
-                        To protect survivor privacy and ensure analytical integrity, CaseLens does not show default pre-populated microdata.
-                        Please upload your 5 multi-agency CSV tables (Police FIR, Hospital MLC, Forensic Lab, Prosecution, Court)
-                        or run the benchmark sample analysis in the <strong>Analyze Your Data</strong> view.
+                        {banner_desc}
                     </div>
                 </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
 
-    col1, col2, _ = st.columns([3, 4, 3])
-    with col1:
-        if st.button(
-            "🔬 Go to Analyze Your Data",
-            key=f"btn_goto_analyze_{st.session_state.get('nav_page_selection', 'p')}",
-            type="primary",
-            width="stretch",
-            on_click=request_navigation,
-            args=("🔬 Analyze Your Data",)
-        ):
-            request_navigation("🔬 Analyze Your Data")
-            st.rerun()
-    with col2:
-        if st.button("🚀 Run Sample Benchmark Analysis", key=f"btn_run_sample_{st.session_state.get('nav_page_selection', 'p')}", width="stretch"):
-            with st.spinner("Executing record linkage and process mining on sample benchmark datasets..."):
-                smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
-                if not smpl_res.get("error"):
-                    total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
-                    st.session_state["active_dataset_id"] = "sample"
-                    st.session_state["active_dataset_label"] = f"Benchmark Sample Dataset ({total_c:,} cases)"
-                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(smpl_res)
-                    st.session_state["active_analysis_result"] = smpl_res
-                    st.session_state["sample_analysis_res"] = smpl_res
-                    st.success("Benchmark sample dataset loaded successfully.")
-                    st.rerun()
-                else:
-                    st.error(f"Failed to load sample dataset: {smpl_res.get('error')}")
+    if not is_viewer:
+        col1, col2, _ = st.columns([3, 4, 3])
+        with col1:
+            if st.button(
+                "🔬 Go to Analyze Your Data",
+                key=f"btn_goto_analyze_{st.session_state.get('nav_page_selection', 'p')}",
+                type="primary",
+                width="stretch",
+                on_click=request_navigation,
+                args=("🔬 Analyze Your Data",)
+            ):
+                request_navigation("🔬 Analyze Your Data")
+                st.rerun()
+        with col2:
+            if st.button("🚀 Run Sample Benchmark Analysis", key=f"btn_run_sample_{st.session_state.get('nav_page_selection', 'p')}", width="stretch"):
+                with st.spinner("Executing record linkage and process mining on sample benchmark datasets..."):
+                    smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
+                    if not smpl_res.get("error"):
+                        total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
+                        st.session_state["active_dataset_id"] = "sample"
+                        st.session_state["active_dataset_label"] = f"Benchmark Sample Dataset ({total_c:,} cases)"
+                        st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(smpl_res)
+                        st.session_state["active_analysis_result"] = smpl_res
+                        st.session_state["sample_analysis_res"] = smpl_res
+                        st.success("Benchmark sample dataset loaded successfully.")
+                        st.rerun()
+                    else:
+                        st.error(f"Failed to load sample dataset: {smpl_res.get('error')}")
 
 
 def render_too_few_cases_warning():

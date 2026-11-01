@@ -378,13 +378,15 @@ class DataStore:
         self._load_active_registry()
 
     def _registry_file_path(self) -> str:
-        return os.path.join(self.data_dir, "active_analysis_registry.json")
+        return os.path.join(self.data_dir, ".active_analysis_registry.json")
 
     def _load_active_registry(self):
         f_path = self._registry_file_path()
-        if os.path.exists(f_path):
+        old_path = os.path.join(self.data_dir, "active_analysis_registry.json")
+        target_path = f_path if os.path.exists(f_path) else (old_path if os.path.exists(old_path) else None)
+        if target_path and os.path.exists(target_path):
             try:
-                with open(f_path, "r", encoding="utf-8") as f:
+                with open(target_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     self.active_dataset_id = data.get("active_dataset_id")
                     self.active_dataset_label = data.get("active_dataset_label")
@@ -392,6 +394,11 @@ class DataStore:
                     self.active_dataset_updated_at = data.get("active_dataset_updated_at")
                     self.active_dataset_updated_by = data.get("active_dataset_updated_by")
                     self.registered_datasets = data.get("registered_datasets", {})
+            except Exception:
+                pass
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
             except Exception:
                 pass
 
@@ -409,6 +416,9 @@ class DataStore:
             os.makedirs(os.path.dirname(os.path.abspath(f_path)), exist_ok=True)
             with open(f_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
+            old_path = os.path.join(self.data_dir, "active_analysis_registry.json")
+            if os.path.exists(old_path):
+                os.remove(old_path)
         except Exception:
             pass
 
@@ -447,12 +457,12 @@ class DataStore:
         self.active_dataset_updated_by = None
         self.registered_datasets.clear()
         self.filter_cache.clear()
-        f_path = self._registry_file_path()
-        if os.path.exists(f_path):
-            try:
-                os.remove(f_path)
-            except Exception:
-                pass
+        for p in [self._registry_file_path(), os.path.join(self.data_dir, "active_analysis_registry.json")]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
 
     def load_data(self):
         """Loads precomputed JSON artifacts and event log if available."""
@@ -1762,6 +1772,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         total_rows = sum(len(df) for df in dfs.values())
         total_cases = res.get("summary_kpis", {}).get("total_cases", 0)
 
+        DATA_STORE.set_active_dataset(
+            dataset_id="sample",
+            label=f"Benchmark Sample Dataset ({total_cases:,} cases)",
+            analysis_result=res,
+            user_id=user.user_id
+        )
+
         request.state.audit_details = {"event": "analyze_sample", "total_records": total_rows, "total_cases": total_cases}
         return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_sample")
 
@@ -1812,6 +1829,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         res = analyze_uploaded_datasets(dfs, baseline_bottlenecks=baseline)
         total_cases = res.get("summary_kpis", {}).get("total_cases", 0)
 
+        DATA_STORE.set_active_dataset(
+            dataset_id="uploaded",
+            label=f"Uploaded CSVs ({total_cases:,} cases)",
+            analysis_result=res,
+            user_id=user.user_id
+        )
+
         request.state.audit_details = {"event": "analyze_upload", "total_records": total_rows, "total_cases": total_cases}
         return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_upload")
 
@@ -1844,9 +1868,142 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 detail=str(val_err)
             )
 
+        m_name = res.get("masked_survivor_name", "Anonymous")
+        DATA_STORE.set_active_dataset(
+            dataset_id="case",
+            label=f"Single Case ({m_name})",
+            analysis_result=res,
+            user_id=user.user_id
+        )
+
         present_sections = sum(1 for v in sections.values() if v and any(str(x).strip() for x in v.values() if x is not None))
         request.state.audit_details = {"event": "analyze_case", "sections_count": present_sections}
         return sanitize_and_verify_payload(res, epsilon_cost=0.0, query_id="analyze_case")
+
+    # ==========================================================================
+    # Cross-Session Dataset Access & Management Endpoints
+    # ==========================================================================
+
+    @app.get("/api/v1/datasets/active", tags=["Datasets (Viewer+)"])
+    def get_active_dataset_endpoint(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Retrieves the active authorized dataset analysis for the dashboard.
+        Accessible to all authenticated roles (Viewer, Analyst, Admin).
+        Returns clear 'empty' status if no dataset is analyzed yet.
+        """
+        if not DATA_STORE.active_dataset_id or not DATA_STORE.active_analysis_result:
+            return sanitize_and_verify_payload({
+                "status": "empty",
+                "message": "No dataset analyzed yet. Upload CSVs or run sample analysis to populate the dashboard.",
+                "dataset_id": None,
+                "dataset_label": None,
+                "analysis_result": None
+            }, epsilon_cost=0.0, query_id="datasets_active_empty")
+
+        payload = {
+            "status": "success",
+            "dataset_id": DATA_STORE.active_dataset_id,
+            "dataset_label": DATA_STORE.active_dataset_label,
+            "updated_at": DATA_STORE.active_dataset_updated_at,
+            "updated_by": DATA_STORE.active_dataset_updated_by,
+            "analysis_result": DATA_STORE.active_analysis_result
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="datasets_active")
+
+    @app.get("/api/v1/datasets", tags=["Datasets (Viewer+)"])
+    def list_registered_datasets_endpoint(
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Lists registered approved datasets available for viewing.
+        Accessible to all authenticated roles (Viewer, Analyst, Admin).
+        """
+        items = []
+        for d_id, d_meta in DATA_STORE.registered_datasets.items():
+            items.append({
+                "dataset_id": d_id,
+                "dataset_label": d_meta.get("dataset_label"),
+                "total_cases": d_meta.get("total_cases", 0),
+                "updated_at": d_meta.get("updated_at"),
+                "is_active": (d_id == DATA_STORE.active_dataset_id)
+            })
+        return sanitize_and_verify_payload({
+            "status": "success",
+            "active_dataset_id": DATA_STORE.active_dataset_id,
+            "datasets": items
+        }, epsilon_cost=0.0, query_id="datasets_list")
+
+    @app.get("/api/v1/datasets/{dataset_id}", tags=["Datasets (Viewer+)"])
+    def get_registered_dataset_endpoint(
+        dataset_id: str,
+        user: UserContext = Depends(require_role(Role.VIEWER))
+    ):
+        """
+        Retrieves a registered approved dataset analysis by dataset_id.
+        Accessible to all authenticated roles (Viewer, Analyst, Admin).
+        """
+        if dataset_id not in DATA_STORE.registered_datasets:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset '{dataset_id}' not found in registered datasets."
+            )
+        target = DATA_STORE.registered_datasets[dataset_id]
+        payload = {
+            "status": "success",
+            "dataset_id": dataset_id,
+            "dataset_label": target.get("dataset_label"),
+            "updated_at": target.get("updated_at"),
+            "updated_by": target.get("updated_by"),
+            "analysis_result": target.get("analysis_result")
+        }
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id=f"datasets_get_{dataset_id}")
+
+    @app.post("/api/v1/datasets/active", tags=["Datasets (Analyst+)"])
+    def activate_registered_dataset_endpoint(
+        request_body: SetActiveDatasetRequest,
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Selects and activates a registered dataset.
+        Accessible exclusively to Institutional Analysts and Administrators (Viewers receive 403).
+        """
+        d_id = request_body.dataset_id
+        if d_id not in DATA_STORE.registered_datasets:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset '{d_id}' not found in registered datasets."
+            )
+        target = DATA_STORE.registered_datasets[d_id]
+        DATA_STORE.active_dataset_id = d_id
+        DATA_STORE.active_dataset_label = target.get("dataset_label")
+        DATA_STORE.active_analysis_result = target.get("analysis_result")
+        DATA_STORE.active_dataset_updated_at = datetime.now(timezone.utc).isoformat()
+        DATA_STORE.active_dataset_updated_by = user.user_id
+        DATA_STORE.filter_cache.clear()
+        DATA_STORE._persist_active_registry()
+        return sanitize_and_verify_payload({
+            "status": "success",
+            "message": f"Active dataset switched to '{DATA_STORE.active_dataset_label}'.",
+            "dataset_id": d_id,
+            "dataset_label": DATA_STORE.active_dataset_label
+        }, epsilon_cost=0.0, query_id="datasets_activate")
+
+    @app.delete("/api/v1/datasets/active", tags=["Datasets (Analyst+)"])
+    def delete_active_dataset_endpoint(
+        user: UserContext = Depends(require_role(Role.ANALYST))
+    ):
+        """
+        Clears the active dataset across all sessions, restoring the unpopulated empty state.
+        Accessible exclusively to Institutional Analysts and Administrators (Viewers receive 403).
+        """
+        DATA_STORE.clear_active_dataset()
+        return sanitize_and_verify_payload({
+            "status": "success",
+            "message": "Active dataset cleared successfully."
+        }, epsilon_cost=0.0, query_id="datasets_clear")
+
 
     return app
 

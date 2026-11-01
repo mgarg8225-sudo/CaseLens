@@ -1094,3 +1094,60 @@ def run_analyze_case(sections: Dict[str, Any], token: Optional[str] = None, time
     except Exception as exc:
         _handle_request_error(exc, url)
         return {"error": f"API unreachable: {str(exc)}", "status_code": 503}
+
+
+# ==============================================================================
+# Cross-Session Dataset Access Client Functions
+# ==============================================================================
+
+def get_active_dataset(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Retrieves active authorized dataset analysis from backend (GET /api/v1/datasets/active)."""
+    url = f"{get_api_base_url()}/api/v1/datasets/active"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "empty", "message": "Backend unavailable or no dataset analyzed yet.", "dataset_id": None}
+
+
+def get_available_datasets(token: Optional[str] = None, timeout: int = 10) -> List[Dict[str, Any]]:
+    """Retrieves list of registered approved datasets (GET /api/v1/datasets)."""
+    url = f"{get_api_base_url()}/api/v1/datasets"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json().get("datasets", [])
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return []
+
+
+def set_active_dataset(dataset_id: str, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Switches active dataset on backend (POST /api/v1/datasets/active). Analyst+ only."""
+    url = f"{get_api_base_url()}/api/v1/datasets/active"
+    try:
+        resp = requests.post(url, json={"dataset_id": dataset_id}, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "error", "message": "Failed to set active dataset"}
+
+
+def clear_active_dataset(token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Clears active dataset on backend across all sessions (DELETE /api/v1/datasets/active). Analyst+ only."""
+    url = f"{get_api_base_url()}/api/v1/datasets/active"
+    try:
+        resp = requests.delete(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "error", "message": "Failed to clear active dataset"}
+
