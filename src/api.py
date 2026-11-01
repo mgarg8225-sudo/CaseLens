@@ -376,6 +376,7 @@ class DataStore:
         self.active_analysis_result: Optional[Dict[str, Any]] = None
         self.active_dataset_updated_at: Optional[str] = None
         self.active_dataset_updated_by: Optional[str] = None
+        self.published_dataset_id: Optional[str] = None
         self.registered_datasets: Dict[str, Dict[str, Any]] = {}
         self.load_data()
         self._load_active_registry()
@@ -446,6 +447,7 @@ class DataStore:
         label = f"Benchmark Sample Dataset ({total_cases:,} cases)"
         now_ts = datetime.now(timezone.utc).isoformat()
 
+        self.published_dataset_id = "sample"
         self.active_dataset_id = "sample"
         self.active_dataset_label = label
         self.active_analysis_result = res
@@ -489,6 +491,12 @@ class DataStore:
                         self.active_dataset_updated_at = data.get("active_dataset_updated_at")
                         self.active_dataset_updated_by = data.get("active_dataset_updated_by")
                         self.registered_datasets = data.get("registered_datasets", {})
+                        self.published_dataset_id = data.get("published_dataset_id")
+                        if not self.published_dataset_id:
+                            for d_id, d_meta in self.registered_datasets.items():
+                                if d_meta.get("is_published"):
+                                    self.published_dataset_id = d_id
+                                    break
                         if not self.active_dataset_id or not self.active_analysis_result:
                             needs_recreation = True
             except Exception as e:
@@ -508,6 +516,7 @@ class DataStore:
         try:
             f_path = self._registry_file_path()
             payload = {
+                "published_dataset_id": self.published_dataset_id,
                 "active_dataset_id": self.active_dataset_id,
                 "active_dataset_label": self.active_dataset_label,
                 "active_analysis_result": self.active_analysis_result,
@@ -530,13 +539,52 @@ class DataStore:
         except Exception as e:
             logger.warning(f"Failed to persist active registry to disk; falling back to in-memory state: {e}")
 
+    def publish_dataset(self, dataset_id: str, user_id: str = "admin") -> bool:
+        """Approves and publishes a dataset, making it available to Viewers."""
+        if dataset_id not in self.registered_datasets:
+            return False
+        now_ts = datetime.now(timezone.utc).isoformat()
+        self.registered_datasets[dataset_id]["is_published"] = True
+        self.registered_datasets[dataset_id]["published_at"] = now_ts
+        self.registered_datasets[dataset_id]["published_by"] = user_id
+        self.published_dataset_id = dataset_id
+        self.filter_cache.clear()
+        self._persist_active_registry()
+        return True
+
+    def unpublish_dataset(self, dataset_id: str, user_id: str = "admin") -> bool:
+        """Revokes publication of a dataset."""
+        if dataset_id not in self.registered_datasets:
+            return False
+        self.registered_datasets[dataset_id]["is_published"] = False
+        if self.published_dataset_id == dataset_id:
+            if "sample" in self.registered_datasets and self.registered_datasets["sample"].get("is_published"):
+                self.published_dataset_id = "sample"
+            else:
+                self.published_dataset_id = None
+        self.filter_cache.clear()
+        self._persist_active_registry()
+        return True
+
+    def get_published_dataset(self) -> Optional[Dict[str, Any]]:
+        """Returns the currently approved and published dataset for Viewers."""
+        if self.published_dataset_id and self.published_dataset_id in self.registered_datasets:
+            d = self.registered_datasets[self.published_dataset_id]
+            if d.get("is_published"):
+                return d
+        for d_id, d_meta in self.registered_datasets.items():
+            if d_meta.get("is_published"):
+                self.published_dataset_id = d_id
+                return d_meta
+        return None
+
     def set_active_dataset(
         self,
         dataset_id: str,
         label: str,
         analysis_result: Dict[str, Any],
         user_id: str = "system",
-        is_published: bool = True
+        is_published: bool = False
     ):
         """Sets and registers active analysis dataset for cross-session access."""
         now_ts = datetime.now(timezone.utc).isoformat()
@@ -555,6 +603,8 @@ class DataStore:
             "updated_by": user_id,
             "is_published": is_published
         }
+        if is_published:
+            self.published_dataset_id = dataset_id
         self.filter_cache.clear()
         self._persist_active_registry()
 
@@ -565,6 +615,7 @@ class DataStore:
         self.active_analysis_result = None
         self.active_dataset_updated_at = None
         self.active_dataset_updated_by = None
+        self.published_dataset_id = None
         self.registered_datasets.clear()
         self.filter_cache.clear()
         for p in [self._registry_file_path(), os.path.join(self.data_dir, "active_analysis_registry.json")]:
@@ -1886,7 +1937,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             dataset_id="sample",
             label=f"Benchmark Sample Dataset ({total_cases:,} cases)",
             analysis_result=res,
-            user_id=user.user_id
+            user_id=user.user_id,
+            is_published=True
         )
 
         request.state.audit_details = {"event": "analyze_sample", "total_records": total_rows, "total_cases": total_cases}
@@ -1943,7 +1995,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             dataset_id="uploaded",
             label=f"Uploaded CSVs ({total_cases:,} cases)",
             analysis_result=res,
-            user_id=user.user_id
+            user_id=user.user_id,
+            is_published=False
         )
 
         request.state.audit_details = {"event": "analyze_upload", "total_records": total_rows, "total_cases": total_cases}
@@ -1999,25 +2052,52 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
-        Retrieves the active authorized dataset analysis for the dashboard.
-        Accessible to all authenticated roles (Viewer, Analyst, Admin).
-        Returns clear 'empty' status if no dataset is analyzed yet.
+        Retrieves the active authorized dataset analysis for the caller's role.
+        Viewers MUST only ever receive the approved and published dataset (never drafts).
+        Admins and Analysts receive the active working dataset.
         """
+        if user.role == Role.VIEWER:
+            pub = DATA_STORE.get_published_dataset()
+            if not pub or not pub.get("analysis_result"):
+                return sanitize_and_verify_payload({
+                    "status": "empty",
+                    "message": "No dataset analyzed yet. No approved and published dataset is currently available. An Administrator must review and publish an analyzed dataset before aggregate analytics become visible for viewing.",
+                    "dataset_id": None,
+                    "dataset_label": None,
+                    "is_published": False,
+                    "analysis_result": None
+                }, epsilon_cost=0.0, query_id="datasets_active_empty")
+
+            payload = {
+                "status": "success",
+                "dataset_id": pub["dataset_id"],
+                "dataset_label": pub.get("dataset_label"),
+                "updated_at": pub.get("updated_at"),
+                "updated_by": pub.get("updated_by"),
+                "is_published": True,
+                "analysis_result": pub["analysis_result"]
+            }
+            return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="datasets_active")
+
+        # Admin and Analyst receive the active working dataset
         if not DATA_STORE.active_dataset_id or not DATA_STORE.active_analysis_result:
             return sanitize_and_verify_payload({
                 "status": "empty",
                 "message": "No dataset analyzed yet. Upload CSVs or run sample analysis to populate the dashboard.",
                 "dataset_id": None,
                 "dataset_label": None,
+                "is_published": False,
                 "analysis_result": None
             }, epsilon_cost=0.0, query_id="datasets_active_empty")
 
+        is_pub = DATA_STORE.registered_datasets.get(DATA_STORE.active_dataset_id, {}).get("is_published", False)
         payload = {
             "status": "success",
             "dataset_id": DATA_STORE.active_dataset_id,
             "dataset_label": DATA_STORE.active_dataset_label,
             "updated_at": DATA_STORE.active_dataset_updated_at,
             "updated_by": DATA_STORE.active_dataset_updated_by,
+            "is_published": is_pub,
             "analysis_result": DATA_STORE.active_analysis_result
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="datasets_active")
@@ -2028,21 +2108,27 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     ):
         """
         Lists registered approved datasets available for viewing.
-        Accessible to all authenticated roles (Viewer, Analyst, Admin).
+        Viewers only see datasets where is_published is True.
+        Admins and Analysts see all registered datasets (drafts and published).
         """
         items = []
         for d_id, d_meta in DATA_STORE.registered_datasets.items():
+            is_pub = d_meta.get("is_published", False)
+            if user.role == Role.VIEWER and not is_pub:
+                continue
+            is_act = (d_id == DATA_STORE.published_dataset_id) if user.role == Role.VIEWER else (d_id == DATA_STORE.active_dataset_id)
             items.append({
                 "dataset_id": d_id,
                 "dataset_label": d_meta.get("dataset_label"),
                 "total_cases": d_meta.get("total_cases", 0),
                 "updated_at": d_meta.get("updated_at"),
-                "is_active": (d_id == DATA_STORE.active_dataset_id),
-                "is_published": d_meta.get("is_published", True)
+                "is_active": is_act,
+                "is_published": is_pub
             })
+        active_id = DATA_STORE.published_dataset_id if user.role == Role.VIEWER else DATA_STORE.active_dataset_id
         return sanitize_and_verify_payload({
             "status": "success",
-            "active_dataset_id": DATA_STORE.active_dataset_id,
+            "active_dataset_id": active_id,
             "datasets": items
         }, epsilon_cost=0.0, query_id="datasets_list")
 
@@ -2052,8 +2138,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
-        Retrieves a registered approved dataset analysis by dataset_id.
-        Accessible to all authenticated roles (Viewer, Analyst, Admin).
+        Retrieves a registered dataset analysis by dataset_id.
+        Viewers receive 403 Forbidden if the dataset has not been approved and published.
         """
         if dataset_id not in DATA_STORE.registered_datasets:
             raise HTTPException(
@@ -2061,15 +2147,72 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 detail=f"Dataset '{dataset_id}' not found in registered datasets."
             )
         target = DATA_STORE.registered_datasets[dataset_id]
+        if user.role == Role.VIEWER and not target.get("is_published", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Forbidden: Dataset has not been approved and published by an Administrator."
+            )
         payload = {
             "status": "success",
             "dataset_id": dataset_id,
             "dataset_label": target.get("dataset_label"),
             "updated_at": target.get("updated_at"),
             "updated_by": target.get("updated_by"),
+            "is_published": target.get("is_published", False),
             "analysis_result": target.get("analysis_result")
         }
         return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id=f"datasets_get_{dataset_id}")
+
+    @app.post("/api/v1/datasets/{dataset_id}/publish", tags=["Datasets (Admin Only)"])
+    def publish_dataset_endpoint(
+        dataset_id: str,
+        user: UserContext = Depends(require_role(Role.ADMIN))
+    ):
+        """
+        Approves and publishes an analyzed dataset, making its aggregate results available to Viewers.
+        Accessible exclusively to Administrators (Analysts and Viewers receive 403 Forbidden).
+        """
+        if dataset_id not in DATA_STORE.registered_datasets:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset '{dataset_id}' not found in registered datasets."
+            )
+        success = DATA_STORE.publish_dataset(dataset_id, user_id=user.user_id)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to publish dataset '{dataset_id}'."
+            )
+        target = DATA_STORE.registered_datasets[dataset_id]
+        return sanitize_and_verify_payload({
+            "status": "success",
+            "message": f"Dataset '{dataset_id}' successfully approved and published for Viewers.",
+            "dataset_id": dataset_id,
+            "dataset_label": target.get("dataset_label"),
+            "is_published": True
+        }, epsilon_cost=0.0, query_id=f"datasets_publish_{dataset_id}")
+
+    @app.post("/api/v1/datasets/{dataset_id}/unpublish", tags=["Datasets (Admin Only)"])
+    def unpublish_dataset_endpoint(
+        dataset_id: str,
+        user: UserContext = Depends(require_role(Role.ADMIN))
+    ):
+        """
+        Revokes publication of an analyzed dataset.
+        Accessible exclusively to Administrators (Analysts and Viewers receive 403 Forbidden).
+        """
+        if dataset_id not in DATA_STORE.registered_datasets:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Dataset '{dataset_id}' not found in registered datasets."
+            )
+        DATA_STORE.unpublish_dataset(dataset_id, user_id=user.user_id)
+        return sanitize_and_verify_payload({
+            "status": "success",
+            "message": f"Dataset '{dataset_id}' publication revoked.",
+            "dataset_id": dataset_id,
+            "is_published": False
+        }, epsilon_cost=0.0, query_id=f"datasets_unpublish_{dataset_id}")
 
     @app.post("/api/v1/datasets/active", tags=["Datasets (Analyst+)"])
     def activate_registered_dataset_endpoint(

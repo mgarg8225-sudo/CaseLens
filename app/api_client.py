@@ -1164,3 +1164,29 @@ def clear_active_dataset(token: Optional[str] = None, timeout: int = 10) -> Dict
         _handle_request_error(exc, url)
     return {"status": "error", "message": "Failed to clear active dataset"}
 
+
+def publish_dataset(dataset_id: str, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Approves and publishes an analyzed dataset for Viewers (POST /api/v1/datasets/{dataset_id}/publish). Admin only."""
+    url = f"{get_api_base_url()}/api/v1/datasets/{dataset_id}/publish"
+    try:
+        resp = requests.post(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "error", "message": f"Failed to publish dataset '{dataset_id}'"}
+
+
+def unpublish_dataset(dataset_id: str, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Revokes publication of an analyzed dataset (POST /api/v1/datasets/{dataset_id}/unpublish). Admin only."""
+    url = f"{get_api_base_url()}/api/v1/datasets/{dataset_id}/unpublish"
+    try:
+        resp = requests.post(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "error", "message": f"Failed to unpublish dataset '{dataset_id}'"}
+

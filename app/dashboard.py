@@ -73,6 +73,8 @@ from app.api_client import (
     get_dataset_by_id,
     set_active_dataset,
     clear_active_dataset,
+    publish_dataset,
+    unpublish_dataset,
 )
 from src.upload_analysis import build_dashboard_bundle_from_analysis
 
@@ -572,10 +574,10 @@ def render_no_active_dataset_banner():
     is_viewer = (u_role == "viewer")
 
     if is_viewer:
-        banner_title = "No dataset analyzed yet."
+        banner_title = "No approved dataset is currently available."
         banner_desc = (
-            "To protect survivor privacy and ensure analytical integrity, CaseLens does not show unverified pre-populated microdata. "
-            "An authorized Institutional Analyst or Administrator must upload and analyze multi-agency dataset tables "
+            "To protect survivor privacy and ensure analytical integrity, CaseLens does not show unverified microdata. "
+            "An authorized Administrator must review, approve, and publish an analyzed multi-agency dataset "
             "before aggregate analytics become visible for viewing."
         )
     else:
@@ -923,6 +925,27 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
         # Cross-session dataset switcher for all authorized roles
         available_datasets = get_available_datasets(token=st.session_state.get("token"))
         is_analyst_or_admin = (CURRENT_ROLE in ("analyst", "admin"))
+
+        # Publication status & Admin publish action
+        curr_ds = next((d for d in available_datasets if d.get("dataset_id") == active_id), None) if available_datasets else None
+        is_published = curr_ds.get("is_published", False) if curr_ds else (active_id == "sample")
+        if CURRENT_ROLE == "admin" and active_id:
+            if not is_published:
+                if st.button("📢 Approve & Publish for Viewers", key="sb_publish_btn", type="primary", width="stretch", help="Publish this dataset for Viewer dashboards"):
+                    with st.spinner("Approving and publishing dataset..."):
+                        pub_res = publish_dataset(active_id, token=st.session_state.get("token"))
+                        if pub_res.get("status") == "success":
+                            st.success(f"Dataset '{active_id}' published for Viewers.")
+                            st.rerun()
+                        else:
+                            st.error(pub_res.get("message", "Failed to publish dataset."))
+            elif active_id != "sample":
+                if st.button("🔒 Revoke Publication", key="sb_unpublish_btn", width="stretch", help="Revoke publication of this dataset"):
+                    with st.spinner("Revoking publication..."):
+                        unpub_res = unpublish_dataset(active_id, token=st.session_state.get("token"))
+                        if unpub_res.get("status") == "success":
+                            st.info(f"Dataset '{active_id}' publication revoked.")
+                            st.rerun()
 
         if available_datasets:
             for ds in available_datasets:
@@ -2113,6 +2136,14 @@ if PAGE == "🔬 Analyze Your Data" or (PAGE and "Analyze Your Data" in PAGE):
         res_upload = st.session_state.get("upload_analysis_res")
         if res_upload and not res_upload.get("error"):
             st.markdown("---")
+            if CURRENT_ROLE == "admin":
+                col_pub, _ = st.columns([1, 2])
+                with col_pub:
+                    if st.button("📢 Approve & Publish for Viewers", key="btn_publish_uploaded_main", type="primary"):
+                        pub_res = publish_dataset("uploaded", token=st.session_state.get("token"))
+                        if pub_res.get("status") == "success":
+                            st.success("Dataset successfully approved and published for Viewers.")
+                            st.rerun()
             render_csv_analysis_results(res_upload, title_prefix="Uploaded Files")
 
     # -------------------------------------------------------------------------
