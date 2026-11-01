@@ -28,11 +28,14 @@ import os
 import json
 import uuid
 import time
+import logging
 from enum import Enum
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Union, Set
 from urllib.parse import urlparse
 from contextlib import asynccontextmanager
+
+logger = logging.getLogger("caselens.registry")
 
 import numpy as np
 import pandas as pd
@@ -380,22 +383,121 @@ class DataStore:
     def _registry_file_path(self) -> str:
         return os.path.join(self.data_dir, ".active_analysis_registry.json")
 
+    def _generate_default_sample_analysis(self) -> Dict[str, Any]:
+        """
+        Generates safe default analysis from bundled sample datasets.
+        Uses first 25 rows of agency CSVs for high-speed deterministic startup (~1s),
+        or falls back to precomputed JSON artifacts if CSVs are unavailable.
+        """
+        dfs = {}
+        for ag in ["police_fir", "hospital_mlc", "forensic_lab", "prosecutor", "court"]:
+            f_path = os.path.join(self.data_dir, f"{ag}.csv")
+            if os.path.exists(f_path):
+                try:
+                    df = pd.read_csv(f_path)
+                    if len(df) > 25:
+                        df = df.head(25)
+                    dfs[ag] = df
+                except Exception as e:
+                    logger.warning(f"Could not read sample CSV for {ag}: {e}")
+
+        if len(dfs) == 5:
+            try:
+                baseline = self.bottlenecks or DEFAULT_BASELINE_BOTTLENECKS
+                return analyze_uploaded_datasets(dfs, baseline_bottlenecks=baseline)
+            except Exception as e:
+                logger.warning(f"Failed to analyze bundled sample CSVs: {e}")
+
+        # Fallback to precomputed JSON artifacts in self
+        total_cases = 0
+        funnel_stages = self.dp_funnel.get("funnel_stages", []) if isinstance(self.dp_funnel, dict) else []
+        if funnel_stages:
+            total_cases = funnel_stages[0].get("display_count", 60)
+        return {
+            "status": "success",
+            "summary_kpis": {
+                "total_cases": total_cases or 60,
+                "fir_rate_pct": 100.0,
+                "verdict_rate_pct": 25.0,
+                "one_line_insight": f"Benchmark Sample Dataset ({total_cases or 60} cases) initialized."
+            },
+            "funnel_stages": funnel_stages,
+            "bottlenecks": self.bottlenecks or {},
+            "linkage_stats": {},
+            "privacy_info": {
+                "k_anonymity": 5,
+                "differential_privacy": "laplace",
+                "epsilon_total": 1.0
+            },
+            "district_leakage": self.dp_districts or {},
+            "district_ranking": [],
+            "journey_metrics": self.journey or {},
+            "systemic_leak_points": [],
+            "events": []
+        }
+
+    def _recreate_default_registry(self):
+        """Recreates registry with bundled sample dataset as active and published."""
+        logger.warning("Active analysis registry was missing, empty or corrupted; recreating with bundled sample dataset as active/published.")
+        res = self._generate_default_sample_analysis()
+        total_cases = res.get("summary_kpis", {}).get("total_cases") or (
+            res.get("funnel_stages", [{}])[0].get("display_count", 60) if res.get("funnel_stages") else 60
+        )
+        label = f"Benchmark Sample Dataset ({total_cases:,} cases)"
+        now_ts = datetime.now(timezone.utc).isoformat()
+
+        self.active_dataset_id = "sample"
+        self.active_dataset_label = label
+        self.active_analysis_result = res
+        self.active_dataset_updated_at = now_ts
+        self.active_dataset_updated_by = "system"
+        self.registered_datasets = {
+            "sample": {
+                "dataset_id": "sample",
+                "dataset_label": label,
+                "analysis_result": res,
+                "total_cases": total_cases,
+                "updated_at": now_ts,
+                "updated_by": "system",
+                "is_published": True
+            }
+        }
+        self.filter_cache.clear()
+        self._persist_active_registry()
+
     def _load_active_registry(self):
         f_path = self._registry_file_path()
         old_path = os.path.join(self.data_dir, "active_analysis_registry.json")
         target_path = f_path if os.path.exists(f_path) else (old_path if os.path.exists(old_path) else None)
-        if target_path and os.path.exists(target_path):
+
+        needs_recreation = False
+        if not target_path or not os.path.exists(target_path):
+            needs_recreation = True
+        else:
             try:
-                with open(target_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    self.active_dataset_id = data.get("active_dataset_id")
-                    self.active_dataset_label = data.get("active_dataset_label")
-                    self.active_analysis_result = data.get("active_analysis_result")
-                    self.active_dataset_updated_at = data.get("active_dataset_updated_at")
-                    self.active_dataset_updated_by = data.get("active_dataset_updated_by")
-                    self.registered_datasets = data.get("registered_datasets", {})
-            except Exception:
-                pass
+                if os.path.getsize(target_path) == 0:
+                    needs_recreation = True
+                else:
+                    with open(target_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if not isinstance(data, dict):
+                        needs_recreation = True
+                    else:
+                        self.active_dataset_id = data.get("active_dataset_id")
+                        self.active_dataset_label = data.get("active_dataset_label")
+                        self.active_analysis_result = data.get("active_analysis_result")
+                        self.active_dataset_updated_at = data.get("active_dataset_updated_at")
+                        self.active_dataset_updated_by = data.get("active_dataset_updated_by")
+                        self.registered_datasets = data.get("registered_datasets", {})
+                        if not self.active_dataset_id or not self.active_analysis_result:
+                            needs_recreation = True
+            except Exception as e:
+                logger.warning(f"Active analysis registry could not be parsed: {e}")
+                needs_recreation = True
+
+        if needs_recreation:
+            self._recreate_default_registry()
+
         if os.path.exists(old_path):
             try:
                 os.remove(old_path)
@@ -413,21 +515,28 @@ class DataStore:
                 "active_dataset_updated_by": self.active_dataset_updated_by,
                 "registered_datasets": self.registered_datasets
             }
-            os.makedirs(os.path.dirname(os.path.abspath(f_path)), exist_ok=True)
+            target_dir = os.path.dirname(os.path.abspath(f_path))
+            os.makedirs(target_dir, exist_ok=True)
             with open(f_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, indent=2)
             old_path = os.path.join(self.data_dir, "active_analysis_registry.json")
             if os.path.exists(old_path):
-                os.remove(old_path)
-        except Exception:
-            pass
+                try:
+                    os.remove(old_path)
+                except Exception:
+                    pass
+        except (IOError, OSError, PermissionError) as e:
+            logger.warning(f"Data directory '{self.data_dir}' is not writable; operating with in-memory registry: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to persist active registry to disk; falling back to in-memory state: {e}")
 
     def set_active_dataset(
         self,
         dataset_id: str,
         label: str,
         analysis_result: Dict[str, Any],
-        user_id: str = "system"
+        user_id: str = "system",
+        is_published: bool = True
     ):
         """Sets and registers active analysis dataset for cross-session access."""
         now_ts = datetime.now(timezone.utc).isoformat()
@@ -443,7 +552,8 @@ class DataStore:
             "analysis_result": analysis_result,
             "total_cases": total_cases,
             "updated_at": now_ts,
-            "updated_by": user_id
+            "updated_by": user_id,
+            "is_published": is_published
         }
         self.filter_cache.clear()
         self._persist_active_registry()
@@ -1927,7 +2037,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "dataset_label": d_meta.get("dataset_label"),
                 "total_cases": d_meta.get("total_cases", 0),
                 "updated_at": d_meta.get("updated_at"),
-                "is_active": (d_id == DATA_STORE.active_dataset_id)
+                "is_active": (d_id == DATA_STORE.active_dataset_id),
+                "is_published": d_meta.get("is_published", True)
             })
         return sanitize_and_verify_payload({
             "status": "success",

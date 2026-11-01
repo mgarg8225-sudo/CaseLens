@@ -389,7 +389,7 @@ def test_data_json_files_byte_identical_before_and_after(api_client):
     100% byte-for-byte identical before and after executing all analyze endpoints.
     """
     # All analytical and pipeline JSON files in data/
-    json_files = [f for f in glob.glob("data/*.json") if not f.endswith("audit_log.json")]
+    json_files = [f for f in glob.glob("data/*.json") if not f.endswith("audit_log.json") and "active_analysis_registry" not in f]
     assert len(json_files) >= 10, f"Expected at least 10 pipeline JSON files, found {len(json_files)}"
 
     def compute_hashes():

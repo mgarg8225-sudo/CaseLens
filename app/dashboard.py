@@ -70,6 +70,7 @@ from app.api_client import (
     run_analyze_case,
     get_active_dataset,
     get_available_datasets,
+    get_dataset_by_id,
     set_active_dataset,
     clear_active_dataset,
 )
@@ -860,6 +861,18 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
 
 
 if _is_running_in_streamlit() and st.session_state.get("authenticated"):
+    # Cross-session dataset synchronization: retrieve active dataset from backend if local session is empty
+    if not st.session_state.get("active_dataset_id"):
+        server_active = get_active_dataset(token=st.session_state.get("token"))
+        if server_active.get("status") == "success" and server_active.get("dataset_id") and server_active.get("analysis_result"):
+            st.session_state["active_dataset_id"] = server_active.get("dataset_id")
+            st.session_state["active_dataset_label"] = server_active.get("dataset_label")
+            st.session_state["active_analysis_result"] = server_active.get("analysis_result")
+            t_res = dict(server_active.get("analysis_result"))
+            if server_active.get("dataset_id") == "case":
+                t_res["is_single_case"] = True
+            st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(t_res)
+
     # ==============================================================================
     # 4. Sidebar Navigation, Global Filters & Session Controls
     # ==============================================================================
@@ -907,10 +920,39 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
             </div>
         """, unsafe_allow_html=True)
 
-        # Context-dependent switcher buttons
-        if active_id != "sample":
-            if st.button("🔄 Switch to Benchmark Sample", key="sb_switch_sample", width="stretch", help="Switch active dashboard dataset to benchmark sample"):
-                with st.spinner("Loading benchmark sample dataset..."):
+        # Cross-session dataset switcher for all authorized roles
+        available_datasets = get_available_datasets(token=st.session_state.get("token"))
+        is_analyst_or_admin = (CURRENT_ROLE in ("analyst", "admin"))
+
+        if available_datasets:
+            for ds in available_datasets:
+                d_id = ds.get("dataset_id")
+                d_label = ds.get("dataset_label") or d_id
+                if d_id != active_id:
+                    if st.button(
+                        f"🔄 Switch to: {d_label}",
+                        key=f"sb_switch_{d_id}",
+                        width="stretch",
+                        help=f"Switch dashboard view to {d_label}"
+                    ):
+                        with st.spinner(f"Loading {d_label}..."):
+                            if is_analyst_or_admin:
+                                set_active_dataset(d_id, token=st.session_state.get("token"))
+                            ds_data = get_dataset_by_id(d_id, token=st.session_state.get("token"))
+                            if ds_data.get("status") == "success" and ds_data.get("analysis_result"):
+                                st.session_state["active_dataset_id"] = d_id
+                                st.session_state["active_dataset_label"] = ds_data.get("dataset_label")
+                                st.session_state["active_analysis_result"] = ds_data.get("analysis_result")
+                                t_res = dict(ds_data.get("analysis_result"))
+                                if d_id == "case":
+                                    t_res["is_single_case"] = True
+                                st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(t_res)
+                                st.rerun()
+
+        # Analyst/Admin benchmark execution shortcut if sample not yet analyzed
+        if is_analyst_or_admin and active_id != "sample" and not any(d.get("dataset_id") == "sample" for d in available_datasets):
+            if st.button("🚀 Run Benchmark Sample", key="sb_run_sample", width="stretch", help="Run benchmark sample analysis"):
+                with st.spinner("Executing record linkage on benchmark sample datasets..."):
                     smpl_res = run_analyze_sample(limit=500, token=st.session_state.get("token"))
                     if not smpl_res.get("error"):
                         total_c = smpl_res.get("summary_kpis", {}).get("total_cases") or smpl_res.get("funnel", {}).get("total_cases", 0)
@@ -921,42 +963,45 @@ if _is_running_in_streamlit() and st.session_state.get("authenticated"):
                         st.session_state["sample_analysis_res"] = smpl_res
                         st.rerun()
 
-        if active_id != "uploaded":
-            up_cached = st.session_state.get("upload_analysis_res")
-            if up_cached and not up_cached.get("error"):
-                if st.button("🔄 Switch to Uploaded CSVs", key="sb_switch_upload", width="stretch", help="Switch back to uploaded dataset"):
-                    total_c = up_cached.get("summary_kpis", {}).get("total_cases") or up_cached.get("funnel", {}).get("total_cases", 0)
-                    st.session_state["active_dataset_id"] = "uploaded"
-                    st.session_state["active_dataset_label"] = f"Uploaded CSVs ({total_c:,} cases)"
-                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(up_cached)
-                    st.session_state["active_analysis_result"] = up_cached
-                    st.rerun()
-
-        if active_id != "case":
-            case_cached = st.session_state.get("single_case_analysis_res")
-            if case_cached and not case_cached.get("error"):
-                if st.button("🔄 Switch to Single Case", key="sb_switch_case", width="stretch", help="Switch back to single case analysis"):
-                    m_name = case_cached.get("masked_survivor_name", "Anonymous")
-                    st.session_state["active_dataset_id"] = "case"
-                    st.session_state["active_dataset_label"] = f"Single Case ({m_name})"
-                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis({
-                        "is_single_case": True,
-                        **case_cached
-                    })
-                    st.session_state["active_analysis_result"] = case_cached
-                    st.rerun()
-
-        # Labelled reset action
-        if active_id:
-            if st.button("❌ Clear Active Dataset", key="sb_clear_active_btn", width="stretch", help="Clear active dataset and reset dashboard to empty state"):
-                st.session_state["active_dataset_id"] = None
-                st.session_state["active_dataset_label"] = None
-                st.session_state["active_dataset_bundle"] = None
-                st.session_state["active_analysis_result"] = None
-                st.session_state["single_case_analysis_res"] = None
-                st.session_state["upload_analysis_res"] = None
-                st.session_state["sample_analysis_res"] = None
+        # Viewer sync button
+        if not is_analyst_or_admin:
+            if st.button("🔄 Sync with Server Dataset", key="sb_sync_server_btn", width="stretch", help="Fetch currently active server dataset"):
+                server_active = get_active_dataset(token=st.session_state.get("token"))
+                if server_active.get("status") == "success" and server_active.get("dataset_id") and server_active.get("analysis_result"):
+                    st.session_state["active_dataset_id"] = server_active.get("dataset_id")
+                    st.session_state["active_dataset_label"] = server_active.get("dataset_label")
+                    st.session_state["active_analysis_result"] = server_active.get("analysis_result")
+                    t_res = dict(server_active.get("analysis_result"))
+                    if server_active.get("dataset_id") == "case":
+                        t_res["is_single_case"] = True
+                    st.session_state["active_dataset_bundle"] = build_dashboard_bundle_from_analysis(t_res)
+                else:
+                    st.session_state["active_dataset_id"] = None
+                    st.session_state["active_dataset_label"] = None
+                    st.session_state["active_dataset_bundle"] = None
+                    st.session_state["active_analysis_result"] = None
                 st.rerun()
+
+        # Clear / reset action
+        if active_id:
+            if is_analyst_or_admin:
+                if st.button("❌ Clear Active Dataset", key="sb_clear_active_btn", width="stretch", help="Clear active dataset across all sessions"):
+                    clear_active_dataset(token=st.session_state.get("token"))
+                    st.session_state["active_dataset_id"] = None
+                    st.session_state["active_dataset_label"] = None
+                    st.session_state["active_dataset_bundle"] = None
+                    st.session_state["active_analysis_result"] = None
+                    st.session_state["single_case_analysis_res"] = None
+                    st.session_state["upload_analysis_res"] = None
+                    st.session_state["sample_analysis_res"] = None
+                    st.rerun()
+            else:
+                if st.button("❌ Reset Local View", key="sb_reset_view_btn", width="stretch", help="Reset local view"):
+                    st.session_state["active_dataset_id"] = None
+                    st.session_state["active_dataset_label"] = None
+                    st.session_state["active_dataset_bundle"] = None
+                    st.session_state["active_analysis_result"] = None
+                    st.rerun()
 
         st.markdown("### 🧭 Analytical Views")
         allowed_pages = ROLE_PERMISSIONS.get(CURRENT_ROLE, ROLE_PERMISSIONS["viewer"])

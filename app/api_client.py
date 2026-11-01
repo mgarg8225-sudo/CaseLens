@@ -1126,6 +1126,19 @@ def get_available_datasets(token: Optional[str] = None, timeout: int = 10) -> Li
     return []
 
 
+def get_dataset_by_id(dataset_id: str, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
+    """Retrieves a specific registered dataset analysis from backend (GET /api/v1/datasets/{dataset_id})."""
+    url = f"{get_api_base_url()}/api/v1/datasets/{dataset_id}"
+    try:
+        resp = requests.get(url, headers=_build_headers(token), timeout=timeout)
+        if resp.status_code == 200:
+            return resp.json()
+        _handle_response_status(resp)
+    except Exception as exc:
+        _handle_request_error(exc, url)
+    return {"status": "error", "message": f"Failed to retrieve dataset '{dataset_id}'"}
+
+
 def set_active_dataset(dataset_id: str, token: Optional[str] = None, timeout: int = 10) -> Dict[str, Any]:
     """Switches active dataset on backend (POST /api/v1/datasets/active). Analyst+ only."""
     url = f"{get_api_base_url()}/api/v1/datasets/active"
