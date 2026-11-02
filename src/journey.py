@@ -23,7 +23,12 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 import numpy as np
-import pm4py
+try:
+    import pm4py
+    _HAS_PM4PY = True
+except ImportError:
+    pm4py = None
+    _HAS_PM4PY = False
 
 # Activity and stage order definitions
 ACTIVITY_MAP = {
@@ -256,6 +261,12 @@ def discover_pm4py_dfg(df_events: pd.DataFrame) -> Dict[str, Any]:
     Leverages PM4Py process mining engine to discover Directly-Follows Graph (DFG)
     and empirical transition duration performance metrics.
     """
+    if not _HAS_PM4PY:
+        raise ImportError(
+            "PM4Py is not installed. PM4Py is only required for the offline process mining model discovery. "
+            "Please install pm4py (pip install pm4py) to use discover_pm4py_dfg()."
+        )
+
     df_pm = pm4py.format_dataframe(
         df_events.copy(),
         case_id="case_id",

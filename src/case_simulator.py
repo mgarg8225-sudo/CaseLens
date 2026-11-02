@@ -24,7 +24,6 @@ from typing import Dict, List, Tuple, Any, Optional
 import jellyfish
 
 from src.linkage import normalize_name, normalize_locality
-from src.auth import log_audit_event
 
 
 # ==============================================================================
@@ -950,6 +949,7 @@ def run_simulation(
 
     # Audit logging: STRICT PRIVACY RULE - Log only scenario title, never personal values
     try:
+        from src.auth import log_audit_event
         log_audit_event(
             event_type="CASE_SIMULATOR_RUN",
             username="simulator_engine",

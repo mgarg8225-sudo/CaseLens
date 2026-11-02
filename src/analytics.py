@@ -29,7 +29,12 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 import numpy as np
-import duckdb
+try:
+    import duckdb
+    _HAS_DUCKDB = True
+except ImportError:
+    duckdb = None
+    _HAS_DUCKDB = False
 
 # Canonical sequence of institutional milestones
 CANONICAL_STAGES = [
@@ -512,6 +517,9 @@ def run_duckdb_analytics(data_dir: str = "data") -> Dict[str, Any]:
 
     if not os.path.exists(event_log_path):
         return {}
+
+    if not _HAS_DUCKDB:
+        raise ImportError("duckdb is not installed. Please install duckdb to run DuckDB OLAP analytics.")
 
     con = duckdb.connect(database=":memory:")
 

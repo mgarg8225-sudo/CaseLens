@@ -1,0 +1,7 @@
+-r requirements-api.txt
+streamlit>=1.35.0
+plotly>=5.20.0
+pytest>=8.0.0
+splink>=4.0.0
+pm4py>=2.7.0
+faker>=24.0.0

@@ -965,6 +965,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             "endpoints_docs": "/docs"
         })
 
+    @app.get("/health", tags=["System"])
     @app.get("/api/v1/health", tags=["System"])
     def health_check():
         """Health check returning database status, privacy budget, and indexing health."""

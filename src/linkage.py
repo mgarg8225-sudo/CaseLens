@@ -29,8 +29,13 @@ from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 import numpy as np
 import jellyfish
-from splink import DuckDBAPI, Linker, SettingsCreator, block_on
-import splink.comparison_library as cl
+try:
+    from splink import DuckDBAPI, Linker, SettingsCreator, block_on
+    import splink.comparison_library as cl
+    _HAS_SPLINK = True
+except ImportError:
+    DuckDBAPI = Linker = SettingsCreator = block_on = cl = None
+    _HAS_SPLINK = False
 
 # Standard Indian surnames for identifying swapped name tokens (e.g. "Sharma Sunita" -> "Sunita Sharma")
 KNOWN_SURNAMES = {
@@ -289,7 +294,7 @@ def load_and_harmonize_records(data_dir: str = "data") -> pd.DataFrame:
     return df_harmonized
 
 
-def build_splink_settings() -> SettingsCreator:
+def build_splink_settings() -> Any:
     """
     Configures Fellegi-Sunter model in Splink:
     - Balanced multi-pass blocking rules (district + surname, district + date, district + relative)
@@ -297,6 +302,12 @@ def build_splink_settings() -> SettingsCreator:
     - Incident date difference with tolerance thresholds
     - Exact match on district & phonetic keys
     """
+    if not _HAS_SPLINK:
+        raise ImportError(
+            "Splink is not installed. Splink is only required for the offline linkage pipeline training. "
+            "Please install splink (pip install splink) to use build_splink_settings()."
+        )
+
     blocking_rules = [
         block_on("district", "phonetic_last"),
         block_on("district", "incident_date"),
@@ -399,6 +410,12 @@ def run_linkage_pipeline(
     agency_counts = df_harmonized["source_agency"].value_counts().to_dict()
     for ag, cnt in agency_counts.items():
         print(f"  - {ag:<15}: {cnt:>5} records")
+
+    if not _HAS_SPLINK:
+        raise ImportError(
+            "Splink is not installed. Splink is only required for the offline linkage pipeline training. "
+            "Please install splink (pip install splink) to use run_splink_linkage()."
+        )
 
     db_api = DuckDBAPI()
     splink_df = db_api.register(df_harmonized, dataset_display_name="harmonized_records")
