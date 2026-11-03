@@ -174,6 +174,14 @@ def get_jwt_secret_key() -> str:
     return key.strip()
 
 
+def is_production_mode() -> bool:
+    """Checks whether the environment is explicitly configured for production."""
+    env = os.environ.get("CASELENS_ENV") or os.environ.get("ENVIRONMENT") or os.environ.get("APP_ENV") or ""
+    is_prod_env = env.strip().lower() in ["production", "prod"]
+    is_render = os.environ.get("RENDER", "").strip().lower() in ["true", "1"]
+    return is_prod_env or is_render
+
+
 
 def create_access_token(
     user_id: str,

@@ -19,6 +19,7 @@ from src.auth import (
     get_user_by_username,
     load_env_file,
     get_secret,
+    is_production_mode,
     VALID_ROLES
 )
 
@@ -105,13 +106,17 @@ def generate_secure_random_password(length: int = 14) -> str:
 
 def seed_demo_users(
     db_path: Optional[str] = None,
-    print_output: bool = False
+    print_output: bool = False,
+    only_if_missing: bool = False
 ) -> Dict[str, Dict[str, Any]]:
     """
     Creates or updates the 9 demo users with random passwords.
-    Never prints or logs plaintext passwords.
-    Returns in-memory dictionary of demo user credentials.
+    In production mode, only_if_missing is strictly enforced and print_output is disabled.
     """
+    if is_production_mode():
+        only_if_missing = True
+        print_output = False
+
     conn = get_db(db_path)
     init_auth_db(conn)
 
@@ -123,13 +128,24 @@ def seed_demo_users(
         agency = cfg["agency"]
         district = cfg["district"]
 
-        # Generate a distinct random password
+        existing = get_user_by_username(username, db_path=db_path)
+        if only_if_missing and existing:
+            credentials[username] = {
+                "id": existing["id"],
+                "username": username,
+                "password": "[REDACTED]",
+                "role": existing["role"],
+                "agency": existing.get("agency"),
+                "district": existing.get("district"),
+                "description": cfg["description"]
+            }
+            continue
+
+        # Generate a distinct random password (non-production only)
         password = generate_secure_random_password(14)
         pw_hash = hash_password(password)
 
-        existing = get_user_by_username(username, db_path=db_path)
         if existing:
-            # Update password hash and reset lockout
             conn.execute(
                 """
                 UPDATE users
@@ -159,7 +175,7 @@ def seed_demo_users(
             "description": cfg["description"]
         }
 
-    if print_output:
+    if print_output and not is_production_mode():
         print("\n" + "=" * 90)
         print("CASELENS - PHASE A DEMO USER SEEDING")
         print("Passwords secured in memory. Never logged or saved to disk.")
@@ -178,22 +194,27 @@ def seed_demo_users(
 def init_demo_users(
     db_path: Optional[str] = None,
     print_output: bool = False,
-    only_if_missing: bool = False
+    only_if_missing: bool = True
 ) -> Dict[str, Dict[str, Any]]:
     """
-    Initializes the 3 core demo users for CaseLens:
+    Initializes the core users for CaseLens:
     1. viewer (role: viewer)
     2. analyst (role: analyst)
     3. admin (role: admin)
 
-    Passwords are read securely via get_secret (st.secrets first, then environment):
-    - DEMO_VIEWER_PASSWORD (or VIEWER_PASSWORD)
-    - DEMO_ANALYST_PASSWORD (or ANALYST_PASSWORD)
-    - DEMO_ADMIN_PASSWORD (or ADMIN_PASSWORD)
-    If missing, cryptographically strong random passwords are generated in memory.
-    Passwords are never hardcoded, printed, or stored in plaintext on disk.
-    Argon2id hashes are saved into DuckDB users table.
+    Guarantees:
+    - In production mode: only_if_missing is strictly enforced.
+    - If a user exists (including inactive or locked), they are NEVER modified, overwritten, or unlocked.
+    - In production mode: print_output is strictly forced to False.
+    - In production mode: DEMO_*_PASSWORD variables are ignored.
+    - In production mode on fresh DB: ADMIN_PASSWORD or INITIAL_ADMIN_PASSWORD is required with >= 8 chars.
+      If missing, raises a RuntimeError that fails startup without leaking secrets.
     """
+    is_prod = is_production_mode()
+    if is_prod:
+        only_if_missing = True
+        print_output = False
+
     load_env_file()
     conn = get_db(db_path)
     init_auth_db(conn)
@@ -202,19 +223,22 @@ def init_demo_users(
         {
             "username": "viewer",
             "role": "viewer",
-            "env_vars": ["DEMO_VIEWER_PASSWORD", "VIEWER_PASSWORD"],
+            "prod_env_vars": ["VIEWER_PASSWORD", "INITIAL_VIEWER_PASSWORD"],
+            "dev_env_vars": ["DEMO_VIEWER_PASSWORD", "VIEWER_PASSWORD"],
             "description": "Public / Civil Society Viewer (Aggregates only: Overview, Funnel, Bottlenecks, Quality, Policy Insights)"
         },
         {
             "username": "analyst",
             "role": "analyst",
-            "env_vars": ["DEMO_ANALYST_PASSWORD", "ANALYST_PASSWORD"],
+            "prod_env_vars": ["ANALYST_PASSWORD", "INITIAL_ANALYST_PASSWORD"],
+            "dev_env_vars": ["DEMO_ANALYST_PASSWORD", "ANALYST_PASSWORD"],
             "description": "Policy & Case Analyst (Viewer pages + Case Simulator)"
         },
         {
             "username": "admin",
             "role": "admin",
-            "env_vars": ["DEMO_ADMIN_PASSWORD", "ADMIN_PASSWORD"],
+            "prod_env_vars": ["ADMIN_PASSWORD", "INITIAL_ADMIN_PASSWORD"],
+            "dev_env_vars": ["DEMO_ADMIN_PASSWORD", "ADMIN_PASSWORD"],
             "description": "System Administrator (Full access + Review Queue + Security Audit Log)"
         }
     ]
@@ -231,23 +255,42 @@ def init_demo_users(
             credentials[username] = {
                 "id": existing["id"],
                 "username": username,
-                "password": "[HIDDEN]",
-                "role": role,
+                "password": "[REDACTED]",
+                "role": existing["role"],
                 "description": cfg["description"]
             }
             continue
 
-        # Read password from st.secrets or environment
+        env_vars_to_check = cfg["prod_env_vars"] if is_prod else cfg["dev_env_vars"]
+
         pwd = None
-        for ev in cfg["env_vars"]:
+        for ev in env_vars_to_check:
             val = get_secret(ev)
             if val and val.strip():
                 pwd = val.strip()
                 break
 
+        if is_prod and not pwd:
+            if role == "admin":
+                raise RuntimeError(
+                    "CRITICAL SECURITY CONFIGURATION ERROR: Initial admin account provisioning failed. "
+                    "In production mode, 'ADMIN_PASSWORD' or 'INITIAL_ADMIN_PASSWORD' environment variable "
+                    "must be configured with at least 8 characters to bootstrap the primary administrator on a fresh database."
+                )
+            else:
+                continue
+
         if not pwd:
             pwd = generate_secure_random_password(14)
             any_random_generated = True
+
+        if len(pwd) < 8:
+            if is_prod and role == "admin":
+                raise RuntimeError(
+                    "CRITICAL SECURITY CONFIGURATION ERROR: Initial admin account provisioning failed. "
+                    "In production mode, 'ADMIN_PASSWORD' or 'INITIAL_ADMIN_PASSWORD' must be at least 8 characters long."
+                )
+            raise ValueError(f"Password for user '{username}' must be at least 8 characters long.")
 
         pw_hash = hash_password(pwd)
         if existing:
@@ -273,12 +316,12 @@ def init_demo_users(
         credentials[username] = {
             "id": user_id,
             "username": username,
-            "password": pwd,
+            "password": pwd if not is_prod else "[REDACTED]",
             "role": role,
             "description": cfg["description"]
         }
 
-    if print_output and any_random_generated:
+    if print_output and not is_prod and any_random_generated:
         print("\n" + "=" * 90)
         print("CASELENS DEMO USERS (Generated Once in Memory - Never Hardcoded)")
         print("=" * 90)
@@ -289,7 +332,6 @@ def init_demo_users(
         print("=" * 90 + "\n")
 
     return credentials
-
 
 
 if __name__ == "__main__":

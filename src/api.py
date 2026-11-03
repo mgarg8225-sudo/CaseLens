@@ -139,8 +139,8 @@ ROLE_HIERARCHY = {
 
 def is_production_mode() -> bool:
     """Checks whether the environment is explicitly configured for production."""
-    env = os.environ.get("CASELENS_ENV") or os.environ.get("ENVIRONMENT") or os.environ.get("APP_ENV") or ""
-    return env.strip().lower() in ["production", "prod"]
+    from src.auth import is_production_mode as _is_prod
+    return _is_prod()
 
 
 def get_configured_api_keys() -> Dict[str, Role]:
@@ -840,6 +840,24 @@ async def lifespan(app: FastAPI):
     DATA_STORE.default_epsilon = 0.25
     DATA_STORE.k_threshold = 5
     DATA_STORE.filter_cache.clear()
+
+    # Step 1: Database schema initialization (must succeed before user provisioning)
+    try:
+        from src.auth import get_db, init_auth_db
+        conn = get_db()
+        init_auth_db(conn)
+    except Exception as e:
+        logger.critical("Database initialization failed: %s", str(e))
+        raise RuntimeError(f"Database schema initialization failed on startup: {e}") from e
+
+    # Step 2: Safe user initialization (only provisions missing accounts, preserves existing)
+    try:
+        from src.seed_users import init_demo_users
+        init_demo_users(only_if_missing=True, print_output=False)
+    except Exception as e:
+        logger.critical("User provisioning failed: %s", str(e))
+        raise
+
     yield
 
 
