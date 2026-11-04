@@ -7,10 +7,14 @@ printed once to the console for demonstration/testing.
 Never stores or logs plaintext passwords to files.
 """
 
+import os
 import sys
 import string
 import secrets
+import logging
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger("caselens.seed")
 
 from src.auth import (
     get_db,
@@ -330,6 +334,119 @@ def init_demo_users(
         for u in credentials.values():
             print(f"{u['role']:<12} | {u['username']:<12} | [CONFIGURED / GENERATED]")
         print("=" * 90 + "\n")
+
+    return credentials
+
+
+
+
+def seed_judge_users(db_path: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+    """
+    Seeds temporary one-click Judge access users if configured via environment variables:
+    - JUDGE_VIEWER_USERNAME / JUDGE_VIEWER_PASSWORD -> role "viewer"
+    - JUDGE_ANALYST_USERNAME / JUDGE_ANALYST_PASSWORD -> role "analyst"
+
+    Guarantees:
+    - Only seeded if BOTH username and password env vars are set and non-empty.
+    - If variables are absent or empty, any previously seeded judge user is removed/deactivated,
+      preventing login after the next restart.
+    - Judge users are strictly assigned "viewer" or "analyst" roles (NEVER "admin").
+    - Password hashing uses standard Argon2id.
+    - Passwords and hashes are never printed or logged.
+    """
+    conn = get_db(db_path)
+    init_auth_db(conn)
+
+    judge_configs = [
+        {
+            "judge_id": "judge_viewer",
+            "role": "viewer",
+            "username_env": "JUDGE_VIEWER_USERNAME",
+            "password_env": "JUDGE_VIEWER_PASSWORD",
+            "description": "Hackathon Judge (Viewer - Aggregate Policy Analytics Only)"
+        },
+        {
+            "judge_id": "judge_analyst",
+            "role": "analyst",
+            "username_env": "JUDGE_ANALYST_USERNAME",
+            "password_env": "JUDGE_ANALYST_PASSWORD",
+            "description": "Hackathon Judge (Analyst - Analysis, Case Explorer & Simulator)"
+        }
+    ]
+
+    credentials = {}
+
+    for cfg in judge_configs:
+        judge_id = cfg["judge_id"]
+        role = cfg["role"]  # strictly "viewer" or "analyst", NEVER "admin"
+        u_var = cfg["username_env"]
+        p_var = cfg["password_env"]
+
+        # Read credentials ONLY from environment variables
+        raw_u = os.environ.get(u_var)
+        raw_p = os.environ.get(p_var)
+
+        u_val = raw_u.strip() if raw_u and raw_u.strip() else None
+        p_val = raw_p.strip() if raw_p and raw_p.strip() else None
+
+        if u_val and p_val:
+            # Enforce security constraints: judge can never be admin or hijack core accounts
+            if u_val.lower() in ["admin", "admin_demo"]:
+                logger.warning("Judge username cannot conflict with administrator. Skipping.")
+                continue
+
+            if len(p_val) < 8:
+                logger.warning("Judge password for '%s' must be at least 8 characters. Skipping.", u_val)
+                continue
+
+            pw_hash = hash_password(p_val)
+
+            # Check if judge user already exists by judge_id or username
+            existing_by_id = conn.execute("SELECT id, username FROM users WHERE id = ?", [judge_id]).fetchall()
+            existing_by_name = conn.execute("SELECT id, username FROM users WHERE LOWER(username) = LOWER(?)", [u_val]).fetchall()
+
+            if existing_by_id:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET username = ?, password_hash = ?, role = ?, agency = 'judge',
+                        is_active = TRUE, failed_attempts = 0, locked_until = NULL
+                    WHERE id = ?
+                    """,
+                    [u_val, pw_hash, role, judge_id]
+                )
+            elif existing_by_name:
+                conn.execute(
+                    """
+                    UPDATE users
+                    SET id = ?, password_hash = ?, role = ?, agency = 'judge',
+                        is_active = TRUE, failed_attempts = 0, locked_until = NULL
+                    WHERE id = ?
+                    """,
+                    [judge_id, pw_hash, role, existing_by_name[0][0]]
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO users (id, username, password_hash, role, agency, district, is_active, failed_attempts, locked_until)
+                    VALUES (?, ?, ?, ?, 'judge', NULL, TRUE, 0, NULL)
+                    """,
+                    [judge_id, u_val, pw_hash, role]
+                )
+
+            credentials[u_val] = {
+                "id": judge_id,
+                "username": u_val,
+                "password": "[REDACTED]",
+                "role": role,
+                "description": cfg["description"]
+            }
+        else:
+            # Variables are absent or removed: remove previously seeded judge user
+            conn.execute(
+                "DELETE FROM users WHERE id = ? OR (agency = 'judge' AND role = ?)",
+                [judge_id, role]
+            )
 
     return credentials
 

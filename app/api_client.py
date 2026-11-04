@@ -11,9 +11,10 @@ Handles:
 """
 
 import os
+import time
 import json
 import re
-from typing import Dict, List, Any, Optional, Set
+from typing import Dict, List, Any, Optional
 import requests
 
 # Try importing streamlit; support headless/test environments safely
@@ -43,6 +44,153 @@ def get_api_base_url() -> str:
             pass
     return os.environ.get("API_URL", DEFAULT_API_URL).rstrip("/")
 
+
+
+_DOTENV_CACHE: Dict[str, Optional[str]] = {}
+_DOTENV_LOADED = False
+
+
+def _clean_val(val: Optional[Any]) -> Optional[str]:
+    """Strips leading/trailing whitespace and surrounding single or double quotes."""
+    if val is None:
+        return None
+    s = str(val).strip()
+    while len(s) >= 2 and ((s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'"))):
+        s = s[1:-1].strip()
+    return s if s else None
+
+
+def _load_project_env() -> None:
+    """Loads project root .env once at startup via python-dotenv."""
+    global _DOTENV_CACHE, _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    try:
+        from dotenv import dotenv_values
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        env_path = os.path.join(root_dir, ".env")
+        if os.path.exists(env_path):
+            _DOTENV_CACHE = dict(dotenv_values(env_path))
+    except Exception:
+        _DOTENV_CACHE = {}
+    _DOTENV_LOADED = True
+
+
+_load_project_env()
+
+
+def get_judge_credential(key: str) -> Optional[str]:
+    """
+    Retrieves a configuration value from, in strict priority order:
+    1. Real environment variables (os.environ)
+    2. st.secrets (guarded with try/except against missing secrets.toml)
+    3. Project root .env file fallback (via python-dotenv, loaded once at startup)
+    Cleans values by stripping whitespace and surrounding matching quotes.
+    """
+    # 1. Real environment variables
+    raw_env = os.environ.get(key)
+    cleaned_env = _clean_val(raw_env)
+    if cleaned_env is not None:
+        return cleaned_env
+
+    # 2. st.secrets (guarded against FileNotFoundError / StreamlitAPIException)
+    if _HAS_STREAMLIT and hasattr(st, "secrets"):
+        try:
+            val = st.secrets.get(key)
+            cleaned_sec = _clean_val(val)
+            if cleaned_sec is not None:
+                return cleaned_sec
+        except Exception:
+            pass
+
+    # 3. Project root .env file fallback
+    raw_dot = _DOTENV_CACHE.get(key)
+    cleaned_dot = _clean_val(raw_dot)
+    if cleaned_dot is not None:
+        return cleaned_dot
+
+    return None
+
+
+def is_judge_access_available(role: str) -> bool:
+    """
+    Returns True ONLY when:
+    1. JUDGE_MODE equals 'on' (case-insensitive) via env, st.secrets, or .env.
+    2. Required credentials (username & password >= 8 chars) for requested role are configured.
+    """
+    mode = get_judge_credential("JUDGE_MODE")
+    if not mode or mode.lower() != "on":
+        return False
+
+    if role == "viewer":
+        u = get_judge_credential("JUDGE_VIEWER_USERNAME")
+        p = get_judge_credential("JUDGE_VIEWER_PASSWORD")
+        return bool(u and p and len(p) >= 8)
+    elif role == "analyst":
+        u = get_judge_credential("JUDGE_ANALYST_USERNAME")
+        p = get_judge_credential("JUDGE_ANALYST_PASSWORD")
+        return bool(u and p and len(p) >= 8)
+    return False
+
+
+def request_with_wakeup_retry(
+    method: str,
+    url: str,
+    timeout: int = 10,
+    max_retries_seconds: int = 60,
+    show_spinner: bool = True,
+    **kwargs
+) -> requests.Response:
+    """
+    Executes an HTTP request with automatic wake-up retry logic for sleeping free-tier servers.
+    When a ConnectionError, Timeout, or HTTP 502/503/504 is encountered, displays a friendly
+    notice: 'The server is waking up, please wait up to a minute...' with a spinner and retries up to 60 seconds.
+    """
+    start_time = time.time()
+    last_exc = None
+    last_resp = None
+
+    spinner_placeholder = None
+
+    while True:
+        try:
+            resp = requests.request(method, url, timeout=timeout, **kwargs)
+            if resp.status_code in (502, 503, 504) and (time.time() - start_time) < max_retries_seconds:
+                last_resp = resp
+                if _HAS_STREAMLIT and st is not None and show_spinner:
+                    if spinner_placeholder is None:
+                        spinner_placeholder = st.empty()
+                    spinner_placeholder.info("⏳ The server is waking up, please wait up to a minute...")
+                time.sleep(2.5)
+                continue
+
+            if spinner_placeholder is not None:
+                spinner_placeholder.empty()
+
+            return resp
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+            last_exc = exc
+            if (time.time() - start_time) < max_retries_seconds:
+                if _HAS_STREAMLIT and st is not None and show_spinner:
+                    if spinner_placeholder is None:
+                        spinner_placeholder = st.empty()
+                    spinner_placeholder.info("⏳ The server is waking up, please wait up to a minute...")
+                time.sleep(2.5)
+                continue
+            else:
+                break
+        except Exception as exc:
+            last_exc = exc
+            break
+
+    if spinner_placeholder is not None:
+        spinner_placeholder.empty()
+
+    if last_resp is not None:
+        return last_resp
+    if last_exc is not None:
+        raise last_exc
+    raise requests.exceptions.ConnectionError(f"Failed to connect to {url}")
 
 def _show_ui_message(level: str, message: str):
     """Displays a friendly Streamlit notification if Streamlit is available."""
@@ -86,17 +234,18 @@ def _build_headers(token: Optional[str] = None) -> Dict[str, str]:
 
 
 def _handle_request_error(exc: Exception, url: str) -> None:
-    """Renders user-friendly message for network/reachability errors."""
-    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-        _show_ui_message(
-            "error",
-            f"⚠️ **Backend Unavailable**: Cannot connect to CaseLens API backend at `{get_api_base_url()}`. "
-            "Please ensure the FastAPI backend service (`uvicorn src.api:app`) is running."
-        )
+    """Renders user-friendly message for network/reachability errors with collapsible details."""
+    raw_error = str(exc)
+    base_url = get_api_base_url()
+    if _HAS_STREAMLIT and st is not None:
+        st.error(f"⚠️ **Backend Unavailable**: Cannot connect to CaseLens API backend at `{base_url}`.")
+        with st.expander("Details", expanded=False):
+            st.markdown(f"**Target URL:** `{url}`")
+            st.code(raw_error)
     else:
         _show_ui_message(
             "error",
-            f"⚠️ **Network Error**: Communication with API backend failed: {str(exc)}"
+            f"⚠️ **Backend Unavailable**: Cannot connect to CaseLens API backend at `{base_url}`: {raw_error}"
         )
 
 
@@ -144,10 +293,16 @@ def _handle_response_status(resp: requests.Response) -> bool:
             except Exception:
                 pass
     else:
-        _show_ui_message(
-            "error",
-            f"⚠️ **API Request Failed ({resp.status_code})**: {detail}"
-        )
+        if _HAS_STREAMLIT and st is not None:
+            st.error(f"⚠️ **Backend Response Issue ({resp.status_code})**: The server encountered an issue.")
+            with st.expander("Details", expanded=False):
+                st.markdown(f"**HTTP Status:** `{resp.status_code}`")
+                st.code(detail)
+        else:
+            _show_ui_message(
+                "error",
+                f"⚠️ **API Request Failed ({resp.status_code})**: {detail}"
+            )
 
     return False
 
@@ -407,14 +562,21 @@ def load_json_fallback(key_or_filename: str) -> Dict[str, Any]:
 # 1. Authentication Endpoint: POST /api/v1/auth/login
 # ==============================================================================
 
-def login(username: str, password: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
+def login(username: str, password: str, timeout: int = 10, max_retries_seconds: int = 60) -> Optional[Dict[str, Any]]:
     """
     Authenticates institutional user via POST /api/v1/auth/login.
+    Automatically retries up to max_retries_seconds if backend is waking up.
     Returns access_token, token_type, and user profile dictionary on success, None on error.
     """
     url = f"{get_api_base_url()}/api/v1/auth/login"
     try:
-        resp = requests.post(url, json={"username": username, "password": password}, timeout=timeout)
+        resp = request_with_wakeup_retry(
+            "POST",
+            url,
+            json={"username": username, "password": password},
+            timeout=timeout,
+            max_retries_seconds=max_retries_seconds
+        )
         if _handle_response_status(resp):
             return resp.json()
         return None
@@ -918,11 +1080,11 @@ def log_audit_event(
 # 5. Composite Dashboard Data Bundle Loader
 # ==============================================================================
 
-def is_backend_available(timeout: float = 0.8) -> bool:
+def is_backend_available(timeout: float = 2.0, max_retries_seconds: int = 5) -> bool:
     """Fast check whether the FastAPI backend is running and reachable."""
     url = f"{get_api_base_url()}/api/v1/health"
     try:
-        resp = requests.get(url, timeout=timeout)
+        resp = request_with_wakeup_retry("GET", url, timeout=timeout, max_retries_seconds=max_retries_seconds, show_spinner=False)
         return resp.status_code == 200
     except Exception:
         return False
@@ -965,6 +1127,15 @@ def load_dashboard_bundle(
     Gracefully falls back to precomputed artifacts if backend is unreachable or offline.
     """
     if not is_backend_available():
+        if _HAS_STREAMLIT and st is not None:
+            try:
+                from streamlit.runtime import exists
+                if exists():
+                    st.error(f"⚠️ **Backend Unavailable**: Cannot connect to CaseLens API backend at `{get_api_base_url()}`.")
+                    with st.expander("Details", expanded=False):
+                        st.code(f"Live API health check failed on {get_api_base_url()}/api/v1/health.")
+            except Exception:
+                pass
         return {
             "summary": load_json_fallback("analytics_summary.json"),
             "funnel": load_json_fallback("analytics_funnel.json"),

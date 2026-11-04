@@ -858,6 +858,13 @@ async def lifespan(app: FastAPI):
         logger.critical("User provisioning failed: %s", str(e))
         raise
 
+    # Step 3: Judge users initialization (optional ephemeral access for hackathon judging)
+    try:
+        from src.seed_users import seed_judge_users
+        seed_judge_users()
+    except Exception as e:
+        logger.warning("Judge user initialization skipped or encountered an issue: %s", str(e))
+
     yield
 
 
