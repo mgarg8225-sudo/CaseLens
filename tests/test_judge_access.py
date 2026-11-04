@@ -383,12 +383,10 @@ def test_judge_credential_precedence_and_dotenv_fallback(monkeypatch):
     assert get_judge_credential("JUDGE_MODE") == "env_override_mode"
 
 
-def test_judge_diagnostic_caption_logic(monkeypatch):
+def test_judge_button_visibility_logic(monkeypatch):
     """
-    Verifies that the diagnostic caption logic on the login page:
-    1. Hides diagnostics when JUDGE_MODE is not 'on'
-    2. Shows 'yes' or 'no' when JUDGE_MODE is 'on'
-    3. Never reveals any credentials, usernames, or passwords
+    Verifies that judge buttons appear ONLY when JUDGE_MODE is 'on'
+    and credentials for that role are configured.
     """
     monkeypatch.setattr("app.api_client._DOTENV_CACHE", {})
     monkeypatch.delenv("JUDGE_MODE", raising=False)
@@ -397,35 +395,26 @@ def test_judge_diagnostic_caption_logic(monkeypatch):
     monkeypatch.delenv("JUDGE_ANALYST_USERNAME", raising=False)
     monkeypatch.delenv("JUDGE_ANALYST_PASSWORD", raising=False)
 
-    # 1. JUDGE_MODE unset: no diagnostic shown
-    mode = get_judge_credential("JUDGE_MODE")
-    is_judge_mode_on = bool(mode and mode.lower() == "on")
-    assert is_judge_mode_on is False
+    # 1. JUDGE_MODE unset: neither button visible
+    assert is_judge_access_available("viewer") is False
+    assert is_judge_access_available("analyst") is False
 
-    # 2. JUDGE_MODE='on', neither configured
+    # 2. JUDGE_MODE='on', neither credentials set: neither button visible
     monkeypatch.setenv("JUDGE_MODE", "on")
-    is_judge_mode_on = bool(get_judge_credential("JUDGE_MODE").lower() == "on")
-    assert is_judge_mode_on is True
-
-    v_avail = is_judge_access_available("viewer")
-    a_avail = is_judge_access_available("analyst")
-    v_diag = "yes" if v_avail else "no"
-    a_diag = "yes" if a_avail else "no"
-    diag_line = f"ℹ️ Judge viewer configured: {v_diag} | Judge analyst configured: {a_diag}"
-    assert diag_line == "ℹ️ Judge viewer configured: no | Judge analyst configured: no"
-    assert "password" not in diag_line.lower()
+    assert is_judge_access_available("viewer") is False
+    assert is_judge_access_available("analyst") is False
 
     # 3. Viewer configured, analyst not configured
     monkeypatch.setenv("JUDGE_VIEWER_USERNAME", "judge_v")
     monkeypatch.setenv("JUDGE_VIEWER_PASSWORD", "SecretPassword2026!")
-    v_avail = is_judge_access_available("viewer")
-    a_avail = is_judge_access_available("analyst")
-    v_diag = "yes" if v_avail else "no"
-    a_diag = "yes" if a_avail else "no"
-    diag_line = f"ℹ️ Judge viewer configured: {v_diag} | Judge analyst configured: {a_diag}"
-    assert diag_line == "ℹ️ Judge viewer configured: yes | Judge analyst configured: no"
-    assert "judge_v" not in diag_line
-    assert "SecretPassword2026!" not in diag_line
+    assert is_judge_access_available("viewer") is True
+    assert is_judge_access_available("analyst") is False
+
+    # 4. Both configured
+    monkeypatch.setenv("JUDGE_ANALYST_USERNAME", "judge_a")
+    monkeypatch.setenv("JUDGE_ANALYST_PASSWORD", "AnalystSecret2026!")
+    assert is_judge_access_available("viewer") is True
+    assert is_judge_access_available("analyst") is True
 
 
 # ==============================================================================
