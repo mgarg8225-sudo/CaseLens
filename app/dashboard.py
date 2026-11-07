@@ -419,15 +419,15 @@ def render_login_screen():
         if show_viewer_judge or show_analyst_judge:
             st.markdown("""
                 <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-left: 3px solid #8B1E3F; border-radius: 4px; padding: 14px 16px; margin-bottom: 14px;">
-                    <div style="font-size: 0.95rem; font-weight: 600; color: #222222; margin-bottom: 2px;">⚡ One-Click Judge Access</div>
-                    <div style="font-size: 0.78rem; color: #5F5F5F;">Explore CaseLens directly with pre-configured hackathon judging roles:</div>
+                    <div style="font-size: 0.95rem; font-weight: 600; color: #222222; margin-bottom: 2px;">⚡ Try the Demo</div>
+                    <div style="font-size: 0.78rem; color: #5F5F5F;">Explore CaseLens instantly with a read-only demo role. No sign-up needed.</div>
                 </div>
             """, unsafe_allow_html=True)
 
             col_j1, col_j2 = st.columns(2)
             if show_viewer_judge:
                 with col_j1:
-                    if st.button("Explore as Judge (Viewer)", key="btn_judge_viewer", use_container_width=True):
+                    if st.button("Demo as Viewer", key="btn_demo_viewer", use_container_width=True):
                         u = get_judge_credential("JUDGE_VIEWER_USERNAME")
                         p = get_judge_credential("JUDGE_VIEWER_PASSWORD")
                         if u and p:
@@ -438,13 +438,13 @@ def render_login_screen():
                                 st.session_state["token"] = res.get("access_token", "")
                                 st.session_state["nav_page_request"] = "📊 Executive Overview"
                                 log_audit_event("LOGIN_SUCCESS", user_id=res.get("user", {}).get("username", u), role="viewer", token=res.get("access_token", ""))
-                                st.success(f"Judge authentication successful. Welcome, {u}!")
+                                st.success(f"Demo authentication successful. Welcome, {u}!")
                                 st.rerun()
                             else:
-                                log_audit_event("LOGIN_FAILED", user_id=u, details={"reason": "Judge login rejected by server"})
+                                log_audit_event("LOGIN_FAILED", user_id=u, details={"reason": "Demo login rejected by server"})
             if show_analyst_judge:
                 with col_j2:
-                    if st.button("Explore as Judge (Analyst)", key="btn_judge_analyst", use_container_width=True):
+                    if st.button("Demo as Analyst", key="btn_demo_analyst", use_container_width=True):
                         u = get_judge_credential("JUDGE_ANALYST_USERNAME")
                         p = get_judge_credential("JUDGE_ANALYST_PASSWORD")
                         if u and p:
@@ -455,10 +455,10 @@ def render_login_screen():
                                 st.session_state["token"] = res.get("access_token", "")
                                 st.session_state["nav_page_request"] = "🔬 Analyze Your Data"
                                 log_audit_event("LOGIN_SUCCESS", user_id=res.get("user", {}).get("username", u), role="analyst", token=res.get("access_token", ""))
-                                st.success(f"Judge authentication successful. Welcome, {u}!")
+                                st.success(f"Demo authentication successful. Welcome, {u}!")
                                 st.rerun()
                             else:
-                                log_audit_event("LOGIN_FAILED", user_id=u, details={"reason": "Judge login rejected by server"})
+                                log_audit_event("LOGIN_FAILED", user_id=u, details={"reason": "Demo login rejected by server"})
 
             st.caption("Read-only demo with synthetic data. First load may take up to a minute on free hosting.")
             st.markdown("<hr style='border: 0; border-top: 1px solid #E3DED6; margin: 16px 0;'/>", unsafe_allow_html=True)

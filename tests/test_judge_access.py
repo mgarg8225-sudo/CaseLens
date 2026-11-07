@@ -417,6 +417,40 @@ def test_judge_button_visibility_logic(monkeypatch):
     assert is_judge_access_available("analyst") is True
 
 
+def test_demo_access_box_reworded_no_judge():
+    """
+    Verifies that the one-click demo access box on the login screen:
+    1. Contains the new title: 'Try the Demo'
+    2. Contains the new description: 'Explore CaseLens instantly with a read-only demo role. No sign-up needed.'
+    3. Contains the new button labels: 'Demo as Viewer' and 'Demo as Analyst'
+    4. Contains the caption: 'Read-only demo with synthetic data. First load may take up to a minute on free hosting.'
+    5. Does NOT contain the word 'judge' in any user-facing strings or labels.
+    """
+    with open("app/dashboard.py", "r", encoding="utf-8") as f:
+        dash_content = f.read()
+
+    # Extract the demo access section
+    import re
+    match = re.search(r'if show_viewer_judge or show_analyst_judge:[\s\S]*?with st\.form\("login_form"', dash_content)
+    assert match is not None, "Demo access block not found in app/dashboard.py"
+    demo_block = match.group(0)
+
+    # 1. New text assertions
+    assert "Try the Demo" in demo_block
+    assert "Explore CaseLens instantly with a read-only demo role. No sign-up needed." in demo_block
+    assert 'st.button("Demo as Viewer"' in demo_block
+    assert 'st.button("Demo as Analyst"' in demo_block
+    assert "Read-only demo with synthetic data. First load may take up to a minute on free hosting." in demo_block
+
+    # 2. No old 'judge' user-visible strings
+    assert "One-Click Judge Access" not in demo_block
+    assert "Explore as Judge" not in demo_block
+    assert "Judge authentication successful" not in demo_block
+    assert "Judge login rejected" not in demo_block
+    assert "Judge viewer configured" not in demo_block
+    assert "Judge analyst configured" not in demo_block
+
+
 # ==============================================================================
 # 6. No Plaintext Passwords Leaked
 # ==============================================================================
