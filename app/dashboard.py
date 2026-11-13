@@ -768,6 +768,24 @@ def leak_by_code(leak_points: List[Any], code: str) -> Dict[str, Any]:
     return {}
 
 
+def format_multiplier_label(mult_val: Any) -> str:
+    """Formats latency multiplier: 1.00x is strictly labeled 'At Statutory Benchmark'."""
+    m = _num(mult_val)
+    if m is None and isinstance(mult_val, str):
+        try:
+            m = float(mult_val)
+        except (ValueError, TypeError):
+            m = None
+    if m is None:
+        return "N/A"
+    if abs(m - 1.0) < 1e-2:
+        return "At Statutory Benchmark"
+    elif m < 1.0:
+        return f"{m:.2f}× (Within Statutory Benchmark)"
+    else:
+        return f"{m:.2f}× baseline"
+
+
 def format_leak_detail(lp: Dict[str, Any]) -> str:
     if not lp:
         return NA
@@ -778,9 +796,15 @@ def format_leak_detail(lp: Dict[str, Any]) -> str:
         delay = _num(lp.get("trial_delay_days"))
     base = _num(lp.get("baseline_days"))
     if mult is not None and delay is not None and base is not None:
+        if abs(mult - 1.0) < 1e-2:
+            mult_desc = "At Statutory Benchmark"
+        elif mult < 1.0:
+            mult_desc = f"{mult:.2f}x (Within Statutory Benchmark)"
+        else:
+            mult_desc = f"{mult:.2f}x delay multiplier"
         return (
             f"Turnaround: <strong>{delay:.1f} days</strong> vs baseline "
-            f"<strong>{base:.1f} days</strong> (<strong>{mult:.2f}x delay multiplier</strong>)"
+            f"<strong>{base:.1f} days</strong> (<strong>{mult_desc}</strong>)"
         )
     rate = _num(lp.get("chargesheet_rate_pct"))
     bench = _num(lp.get("state_benchmark_pct"))
@@ -2069,7 +2093,7 @@ if PAGE == "🔬 Analyze Your Data" or (PAGE and "Analyze Your Data" in PAGE):
                 st.info(
                     f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
                     f"**{longest.get('duration_days')} days** (baseline: {longest.get('baseline_days')} days, "
-                    f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+                    f"<strong>{format_multiplier_label(longest.get('multiplier'))}</strong>)."
                 )
 
             # Timeline Stages Display
@@ -2338,7 +2362,7 @@ elif PAGE == "📊 Executive Overview":
             st.info(
                 f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
                 f"**{longest.get('duration_days')} days** (statutory baseline: {longest.get('baseline_days')} days, "
-                f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+                f"<strong>{format_multiplier_label(longest.get('multiplier'))}</strong>)."
             )
         st.stop()
 
@@ -2395,15 +2419,75 @@ elif PAGE == "📊 Executive Overview":
     # Signal 1: Transition Latency / Primary Bottleneck
     bottlenecks_data = DATA.get("bottlenecks", {})
     trans_list = bottlenecks_data.get("inter_stage_transitions", [])
-    max_trans = max(trans_list, key=lambda t: t.get("median_duration_days", 0), default={}) if trans_list else {}
-    if max_trans and max_trans.get("median_duration_days"):
-        sig1_title = f"Primary Latency Bottleneck ({max_trans.get('transition', 'Stage')})"
-        sig1_val = f"{max_trans.get('median_duration_days', 0):.1f} Days"
-        sig1_sub = f"P90: {max_trans.get('p90_duration_days', 0):.1f}d | Statutory: {max_trans.get('statutory_benchmark_days', 60)}d"
+    if not trans_list and isinstance(bottlenecks_data, dict):
+        trans_list = []
+        for pair, t_data in bottlenecks_data.items():
+            if isinstance(t_data, dict) and "->" in str(pair):
+                med_d = t_data.get("median_days") or t_data.get("median_duration_days", 0.0)
+                mean_d = t_data.get("mean_days") or t_data.get("mean_duration_days", med_d)
+                p90_d = t_data.get("p90_days") or t_data.get("p90_duration_days", med_d)
+                p95_d = t_data.get("p95_days") or t_data.get("p95_duration_days", p90_d)
+                bench_d = t_data.get("statutory_benchmark_days")
+                if not bench_d:
+                    if "MEDICAL" in pair:
+                        bench_d = 1.0
+                    elif "FORENSIC" in pair:
+                        bench_d = 30.0
+                    elif "CHARGESHEET" in pair:
+                        bench_d = 60.0
+                    elif "COURT" in pair or "VERDICT" in pair:
+                        bench_d = 365.0
+                    else:
+                        bench_d = 30.0
+                trans_list.append({
+                    "transition": pair,
+                    "median_duration_days": med_d,
+                    "mean_duration_days": mean_d,
+                    "p90_duration_days": p90_d,
+                    "p95_duration_days": p95_d,
+                    "statutory_benchmark_days": bench_d,
+                    "sample_count": t_data.get("sample_count", 0)
+                })
+
+    # Filter out composite E2E lifecycles and self-transitions for true inter-stage step bottleneck identification
+    step_transitions = [
+        t for t in trans_list
+        if not t.get("is_statutory_benchmark")
+        and "(E2E)" not in t.get("transition", "")
+        and " -> " in t.get("transition", "")
+        and t.get("transition", "").split(" -> ")[0].strip() != t.get("transition", "").split(" -> ")[1].strip()
+    ]
+    if not step_transitions:
+        step_transitions = trans_list
+
+    def get_statutory_ratio(t):
+        med = t.get("median_duration_days") or t.get("median_days", 0.0)
+        bench = t.get("statutory_benchmark_days") or 60.0
+        return (med / bench) if bench > 0 else 1.0
+
+    primary_trans = max(step_transitions, key=get_statutory_ratio, default={}) if step_transitions else {}
+
+    if primary_trans and (primary_trans.get("median_duration_days") or primary_trans.get("median_days")):
+        med_val = primary_trans.get("median_duration_days") or primary_trans.get("median_days", 0.0)
+        bench_val = primary_trans.get("statutory_benchmark_days", 60.0)
+        stat_ratio = get_statutory_ratio(primary_trans)
+        p95_val = primary_trans.get("p95_duration_days") or primary_trans.get("p95_days", 0.0)
+        tr_name = primary_trans.get("transition", "Stage")
+
+        if abs(stat_ratio - 1.0) < 0.01:
+            ratio_badge = "At Statutory Benchmark"
+        elif stat_ratio < 1.0:
+            ratio_badge = f"{stat_ratio:.2f}x (Within Statutory Benchmark)"
+        else:
+            ratio_badge = f"{stat_ratio:.2f}x Statutory Delay Multiplier"
+
+        sig1_title = f"Primary Latency Bottleneck ({tr_name})"
+        sig1_val = f"{med_val:.1f} Days (Median)"
+        sig1_sub = f"{ratio_badge} (Mandate: {bench_val:.0f}d) | P95 Tail Latency: {p95_val:.1f}d"
     else:
         sig1_title = "Primary Latency Bottleneck"
         sig1_val = "Baseline"
-        sig1_sub = "No critical delay spike detected"
+        sig1_sub = "Within Statutory Benchmark"
 
     # Signal 2: Top Attrition / Leak Point
     leaks_list = summary_data.get("systemic_leak_points_detected", [])
@@ -2472,21 +2556,56 @@ elif PAGE == "📊 Executive Overview":
             df_rank = pd.DataFrame(ranking)
             if "score" not in df_rank.columns and "leak_score" in df_rank.columns:
                 df_rank["score"] = df_rank["leak_score"]
-            if "status" not in df_rank.columns:
-                df_rank["status"] = df_rank["score"].apply(lambda s: "CRITICAL" if s >= 10.0 else "NORMAL")
+
+            # Unified 5-tier classification with Insufficient Data handling
+            def get_district_status(row):
+                st_val = str(row.get("status", "")).strip().upper()
+                if st_val in ["INSUFFICIENT_DATA", "INSUFFICIENT DATA"] or row.get("is_suppressed") or row.get("score") is None:
+                    return "Insufficient Data"
+                try:
+                    sc = float(row.get("score", 0.0))
+                except (ValueError, TypeError):
+                    return "Insufficient Data"
+                if sc < 10.0:
+                    return "Normal"
+                elif sc < 25.0:
+                    return "Moderate"
+                elif sc < 40.0:
+                    return "Elevated"
+                elif sc < 60.0:
+                    return "Severe"
+                else:
+                    return "Critical"
+
+            df_rank["status"] = df_rank.apply(get_district_status, axis=1)
+
+            color_map = {
+                "Normal": "#10B981",
+                "Moderate": "#0EA5E9",
+                "Elevated": "#F59E0B",
+                "Severe": "#F97316",
+                "Critical": "#EF4444",
+                "Insufficient Data": "#9CA3AF"
+            }
+
+            # Text labels for bars: show 'Insufficient Data (n < 5)' if suppressed or no data
+            bar_texts = [
+                f"{float(s):.1f}" if st != "Insufficient Data" and s is not None and s > 0 else "Insufficient Data (n < 5)"
+                for s, st in zip(df_rank["score"], df_rank["status"])
+            ]
+
             fig_rank = px.bar(
                 df_rank,
                 x="score",
                 y="district",
                 orientation="h",
                 color="status",
-                color_discrete_map={"CRITICAL": "#B45309", "NORMAL": "#8C8C8C"},
-                text="score",
-                labels={"score": "Vulnerability Score", "district": "District", "status": "Classification"},
-                title="Composite District Leak Severity Score (Baseline: Normal < 10.0)"
+                color_discrete_map=color_map,
+                labels={"score": "Vulnerability Score", "district": "District", "status": "Severity Tier"},
+                title="District Vulnerability Severity Index (Baseline: Normal < 10.0 | Moderate 10–25 | Elevated 25–40 | Severe 40–60 | Critical ≥ 60)"
             )
             fig_rank.update_layout(get_plot_layout(), yaxis=dict(autorange="reversed"))
-            fig_rank.update_traces(texttemplate='%{text:.1f}', textposition='outside')
+            fig_rank.update_traces(text=bar_texts, textposition="outside", cliponaxis=False)
             st.plotly_chart(fig_rank, width="stretch")
         else:
             st.info("No district vulnerability breakdown available for this active cohort.")
@@ -2706,7 +2825,7 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
             st.info(
                 f"⏱️ **Greatest Inter-Stage Latency**: {longest.get('pair')} required "
                 f"**{longest.get('duration_days')} days** (statutory baseline: {longest.get('baseline_days')} days, "
-                f"<strong>{longest.get('multiplier')}× baseline</strong>)."
+                f"<strong>{format_multiplier_label(longest.get('multiplier'))}</strong>)."
             )
 
         trans_list = DATA.get("bottlenecks", {}).get("inter_stage_transitions", [])
@@ -2740,8 +2859,25 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
     ]
 
     col1, col2, col3, col4 = st.columns(4)
-    stat_labels = ["FIR -> MLC (Hospital)", "MLC -> FSL (Forensics)", "FSL -> Chargesheet (Police)", "Chargesheet -> Court Verdict"]
-    for idx, (trans_key, label) in enumerate(zip(key_transitions, stat_labels)):
+    stat_labels = [
+        "Information Received → Sent for Medical Exam",
+        "Medical Exam → Forensic Report",
+        "Investigation Completion (Chargesheet Proxy)",
+        "Chargesheet → Verdict (Operational Proxy)"
+    ]
+    stat_badges = [
+        "Statutory Mandate (Proxy Start: 24h)",
+        "Policy/SOP Target (30d)",
+        "Statutory Mandate (2 Calendar Months)",
+        "Operational Pipeline Proxy (365d)"
+    ]
+    stat_tooltips = [
+        "BNSS Section 184(1) / CrPC Section 164A(1): Where a rape or attempted-rape offence is under investigation and medical examination is proposed, the woman must be sent for examination within 24 hours of receiving information. In the absence of an exact information-received timestamp, FIR date is used as an operational proxy.",
+        "MHA Women Safety Advisory / State SAEK SOP: 30-day administrative turnaround target to support statutory investigation completion.",
+        "BNSS Section 193(2) / CrPC Section 173(1A): Mandatory investigation completion within 2 calendar months for eligible BNS (Sec 64-68, 70, 71) and POCSO offences. Chargesheet filing date used as proxy.",
+        "POCSO Section 35(2) Proxy: Measures prosecution filing to verdict. Does not claim statutory compliance, which commences strictly upon Special Court taking cognizance."
+    ]
+    for idx, (trans_key, label, badge, tooltip) in enumerate(zip(key_transitions, stat_labels, stat_badges, stat_tooltips)):
         trans_data = bottlenecks.get(trans_key, {})
         col = [col1, col2, col3, col4][idx]
         with col:
@@ -2752,8 +2888,9 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
             p95_str = f"{p95:.1f}" if isinstance(p95, (int, float)) else NA
             sample_str = f"{sample:,}" if isinstance(sample, int) else NA
             st.markdown(f"""
-                <div class="metric-card">
+                <div class="metric-card" title="{tooltip}">
                     <div class="metric-label">{label}</div>
+                    <div style="font-size: 0.72rem; color: #4338CA; font-weight: 600; margin-bottom: 2px;">{badge}</div>
                     <div class="metric-value">{med_str} <span style="font-size: 0.85rem; color: #5F5F5F;">days</span></div>
                     <div class="metric-delta">P95: {p95_str} days (n={sample_str})</div>
                 </div>

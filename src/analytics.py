@@ -217,9 +217,30 @@ def compute_district_leakage_diagnostics(
     for dist, grp in df_cases.groupby("district"):
         d_delays = df_delays[df_delays["district"] == dist]
 
+        d_cases = len(grp)
         fir_n = int(grp["has_fir"].sum())
         pros_n = int(grp["has_pros"].sum())
         court_n = int(grp["has_court"].sum())
+
+        if d_cases < 5 or fir_n < 5:
+            district_diagnostics[dist] = {
+                "total_cases": d_cases,
+                "fir_registered": fir_n,
+                "chargesheet_filed": pros_n,
+                "court_verdict": court_n,
+                "fir_to_chargesheet_rate_pct": 0.0,
+                "chargesheet_to_verdict_rate_pct": 0.0,
+                "end_to_end_completion_rate_pct": 0.0,
+                "forensic_delay_avg_days": 0.0,
+                "forensic_delay_median_days": 0.0,
+                "trial_delay_avg_days": 0.0,
+                "trial_delay_median_days": 0.0,
+                "status": "INSUFFICIENT_DATA",
+                "vulnerability_score": 0.0,
+                "detected_anomalies": [],
+                "is_suppressed": True
+            }
+            continue
 
         fir_to_pros_rate = round((pros_n / fir_n * 100.0), 1) if fir_n > 0 else 0.0
         pros_to_court_rate = round((court_n / pros_n * 100.0), 1) if pros_n > 0 else 0.0
@@ -302,6 +323,22 @@ def compute_district_leakage_diagnostics(
         vulnerability_score += min(35.0, max(0.0, (fsl_median - 40.0) * 0.35))
         vulnerability_score += min(35.0, max(0.0, (trial_median - 280.0) * 0.10))
         vulnerability_score = round(min(100.0, vulnerability_score), 1)
+
+        # Consistent 5-tier classification matching frontend and upload analytics
+        if vulnerability_score < 10.0:
+            severity = "NORMAL"
+        elif vulnerability_score < 25.0:
+            severity = "MODERATE"
+        elif vulnerability_score < 40.0:
+            severity = "ELEVATED"
+        elif vulnerability_score < 60.0:
+            severity = "SEVERE"
+        else:
+            severity = "CRITICAL"
+
+        # If any severe statutory anomaly fired, ensure status reflects at least anomaly level
+        if anomalies and severity in ["NORMAL", "MODERATE"]:
+            severity = "CRITICAL" if any(a.get("severity") == "CRITICAL" for a in anomalies) else "SEVERE"
 
         district_diagnostics[dist] = {
             "total_cases": len(grp),

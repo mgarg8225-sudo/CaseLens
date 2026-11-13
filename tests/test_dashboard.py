@@ -628,10 +628,10 @@ def test_all_seven_dashboard_pages_data_bundle_integration():
             "zero_pii_verified": True
         },
         "district_leakage": [
-            {"district": "D3_Rudrapur", "total_cases": 50, "fir_cases": 48, "chargesheet_cases": 20, "verdict_cases": 12, "score": 45.2, "leak_score": 45.2, "status": "NORMAL"}
+            {"district": "D3_Rudrapur", "total_cases": 50, "fir_cases": 48, "chargesheet_cases": 20, "verdict_cases": 12, "score": 45.2, "leak_score": 45.2, "status": "SEVERE"}
         ],
         "district_ranking": [
-            {"district": "D3_Rudrapur", "score": 45.2, "leak_score": 45.2, "status": "NORMAL"}
+            {"district": "D3_Rudrapur", "score": 45.2, "leak_score": 45.2, "status": "SEVERE"}
         ],
         "journey_metrics": {
             "total_cases": 88,

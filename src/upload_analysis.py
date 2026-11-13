@@ -22,7 +22,7 @@ import re
 import zipfile
 import math
 from datetime import datetime
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Set
 
 import pandas as pd
 import numpy as np
@@ -35,6 +35,38 @@ from src.analytics import filter_event_log, normalize_stage_name
 
 # True name of the linkage method used for uploaded & entered data
 LINKAGE_METHOD_NAME = "Fellegi-Sunter Pairwise Scoring (case_simulator)"
+
+
+def classify_district_severity(
+    score: Optional[float],
+    total_cases: int = 0,
+    fir_cases: int = 0,
+    k_threshold: int = 5,
+    is_suppressed: bool = False
+) -> str:
+    """
+    Classifies district vulnerability score into consistent 5-tier severity thresholds:
+    - Distinct case count < k_threshold, zero FIRs, or is_suppressed: "Insufficient Data"
+    - score < 10.0: "Normal"
+    - 10.0 <= score < 25.0: "Moderate"
+    - 25.0 <= score < 40.0: "Elevated"
+    - 40.0 <= score < 60.0: "Severe"
+    - score >= 60.0: "Critical"
+    """
+    if is_suppressed or total_cases < k_threshold or fir_cases < k_threshold or score is None:
+        return "Insufficient Data"
+    sc = float(score)
+    if sc < 10.0:
+        return "Normal"
+    elif sc < 25.0:
+        return "Moderate"
+    elif sc < 40.0:
+        return "Elevated"
+    elif sc < 60.0:
+        return "Severe"
+    else:
+        return "Critical"
+
 
 # Canonical CSV schemas matching exact data/ source files
 REQUIRED_COLUMNS = {
@@ -163,6 +195,195 @@ DEFAULT_BASELINE_BOTTLENECKS = {
     "CHARGESHEET_FILED -> COURT_VERDICT": {"median_days": 284.0, "mean_days": 320.6, "benchmark_days": 365.0},
     "FIR_REGISTERED -> COURT_VERDICT": {"median_days": 382.0, "mean_days": 418.0, "benchmark_days": 365.0}
 }
+
+# ==============================================================================
+# Statutory Offence Whitelists and Eligibility Classifications
+# ==============================================================================
+
+# Section 193(2) BNSS / Section 173(1A) CrPC Investigation Deadline (2 Calendar Months)
+# Exact statutory offence lists:
+BNSS_193_ELIGIBLE_BNS = {"64", "65", "66", "67", "68", "70", "71"}
+BNSS_193_ELIGIBLE_POCSO = {"4", "6", "8", "10"}
+CRPC_173_1A_ELIGIBLE_IPC = {
+    "376", "376A", "376AB", "376B", "376C", "376D", "376DA", "376DB", "376E"
+}
+
+# Section 184(1) BNSS / Section 164A(1) CrPC Medical Examination (24h to be sent for exam)
+# Scope: ONLY woman with whom rape or attempt to commit rape is alleged.
+# BNS 64, 65, 66, 70 are substantive rape offences.
+# BNS 67 (husband during separation) & BNS 68 (custodial sex) are NOT rape for Section 184.
+# BNS 69 (deceitful promise) is NOT rape.
+# BNS 71 is an enhanced sentencing / repeat offender provision and does not independently certify
+# rape eligibility without an underlying qualifying substantive rape offence (BNS 64, 65, 66, or 70).
+BNSS_184_SUBSTANTIVE_RAPE_BNS = {"64", "65", "66", "70"}
+
+# For CrPC Section 164A(1), IPC 376B (intercourse during separation) and 376C (intercourse by authority)
+# are explicitly removed as they are not rape offences under statutory law.
+# IPC 376E is an enhanced sentencing / repeat offender provision (corresponding to BNS 71)
+# and does not independently certify rape eligibility without an underlying qualifying substantive rape section.
+CRPC_164A_SUBSTANTIVE_RAPE_IPC = {
+    "376", "376A", "376AB", "376D", "376DA", "376DB"
+}
+
+# Configurable Forensic SOP Turnaround Benchmark (Policy SOP target, not statutory mandate)
+DEFAULT_FORENSIC_SOP_BENCHMARK_DAYS = 30.0
+FORENSIC_SOP_AUTHORITY = (
+    "MHA Women Safety Advisory No. 15011/35/2019-SC/ST-W read with State FSL / SAEK SOPs "
+    "(Administrative Policy Target to support statutory 2-month investigation completion)"
+)
+
+
+def extract_legal_sections(section_str: Optional[str]) -> Dict[str, Set[str]]:
+    """
+    Parses a legal provisions string into BNS, POCSO, and IPC section tokens.
+    Handles delimiters, prefixes (e.g. 'BNS 64, 70', 'IPC 376(2)', 'POCSO Sec 4').
+    """
+    if not section_str or pd.isna(section_str):
+        return {"bns": set(), "pocso": set(), "ipc": set(), "raw_tokens": set()}
+
+    raw = str(section_str).upper()
+    tokens = set(re.findall(r"\b[0-9]+[A-Z]*\b", raw))
+
+    bns_sections = set()
+    pocso_sections = set()
+    ipc_sections = set()
+
+    for token in tokens:
+        if re.search(rf"\bBNS\s*(?:SEC(?:TION)?\.?)?\s*{re.escape(token)}\b", raw):
+            bns_sections.add(token)
+        elif re.search(rf"\bPOCSO\s*(?:SEC(?:TION)?\.?)?\s*{re.escape(token)}\b", raw):
+            pocso_sections.add(token)
+        elif re.search(rf"\bIPC\s*(?:SEC(?:TION)?\.?)?\s*{re.escape(token)}\b", raw):
+            ipc_sections.add(token)
+        else:
+            if token.startswith("376"):
+                ipc_sections.add(token)
+            elif token in {"64", "65", "66", "67", "68", "69", "70", "71"}:
+                bns_sections.add(token)
+            elif "POCSO" in raw and token in {"4", "6", "8", "10", "12", "14", "15"}:
+                pocso_sections.add(token)
+
+    return {
+        "bns": bns_sections,
+        "pocso": pocso_sections,
+        "ipc": ipc_sections,
+        "raw_tokens": tokens
+    }
+
+
+def check_bnss_193_eligibility(
+    section_str: Optional[str],
+    offense_category: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Evaluates statutory investigation deadline eligibility under Section 193(2) BNSS / Section 173(1A) CrPC.
+    Eligible: BNS 64, 65, 66, 67, 68, 70, 71; POCSO 4, 6, 8, 10; IPC 376 series.
+    Excluded: BNS 69, POCSO 12/14/15, general offences.
+    Missing section data cannot be certified by offense_category == 'sexual_assault' alone.
+    """
+    if not section_str or pd.isna(section_str) or str(section_str).strip() == "":
+        return False, "UNVERIFIED_STATUTORY_ELIGIBILITY"
+
+    parsed = extract_legal_sections(section_str)
+    bns = parsed["bns"]
+    pocso = parsed["pocso"]
+    ipc = parsed["ipc"]
+    raw_tokens = parsed["raw_tokens"]
+
+    # Explicit check for BNS 69 exclusion when no qualifying section exists
+    if "69" in bns or ("69" in raw_tokens and "BNS" in str(section_str).upper()):
+        qualifying_bns = bns.intersection(BNSS_193_ELIGIBLE_BNS)
+        qualifying_pocso = pocso.intersection(BNSS_193_ELIGIBLE_POCSO)
+        qualifying_ipc = ipc.intersection(CRPC_173_1A_ELIGIBLE_IPC)
+        if not (qualifying_bns or qualifying_pocso or qualifying_ipc):
+            return False, "INELIGIBLE_BNS_SECTION_69"
+
+    if bns.intersection(BNSS_193_ELIGIBLE_BNS):
+        return True, "ELIGIBLE_BNSS_193_2_BNS"
+    if pocso.intersection(BNSS_193_ELIGIBLE_POCSO):
+        return True, "ELIGIBLE_BNSS_193_2_POCSO"
+    if ipc.intersection(CRPC_173_1A_ELIGIBLE_IPC):
+        return True, "ELIGIBLE_CRPC_173_1A_IPC"
+
+    return False, "INELIGIBLE_STATUTORY_OFFENCE"
+
+
+def check_bnss_184_eligibility(
+    section_str: Optional[str],
+    offense_category: Optional[str] = None
+) -> Tuple[bool, str]:
+    """
+    Evaluates statutory medical examination eligibility under Section 184(1) BNSS / Section 164A(1) CrPC.
+    Statutory rule: Applies where an offence of committing rape or attempt to commit rape is under investigation
+    and medical examination of the woman is proposed.
+
+    Eligible substantive rape / attempted rape offences:
+      - BNS: 64, 65, 66, 70.
+      - IPC: 376, 376A, 376AB, 376D, 376DA, 376DB, 376E (IPC 376B and 376C are removed).
+
+    Excluded non-rape sexual offences:
+      - IPC 376B & 376C are not rape offences -> INELIGIBLE_NON_RAPE_IPC.
+      - BNS 67 & 68 are not rape offences -> INELIGIBLE_NON_RAPE_BNS.
+      - BNS 69 is not rape -> INELIGIBLE_NON_RAPE_BNS.
+
+    Conditional / Unverified:
+      - BNS 71 without a qualifying underlying rape offence (64, 65, 66, 70) cannot independently
+        certify eligibility -> UNVERIFIED_STATUTORY_ELIGIBILITY.
+      - POCSO-only cases without established qualifying rape provisions -> UNVERIFIED_STATUTORY_ELIGIBILITY.
+      - Missing section data cannot be certified by coarse offense_category alone -> UNVERIFIED_STATUTORY_ELIGIBILITY.
+    """
+    if not section_str or pd.isna(section_str) or str(section_str).strip() == "":
+        return False, "UNVERIFIED_STATUTORY_ELIGIBILITY"
+
+    parsed = extract_legal_sections(section_str)
+    bns = parsed["bns"]
+    pocso = parsed["pocso"]
+    ipc = parsed["ipc"]
+
+    # Check for non-rape IPC sections 376B and 376C
+    non_rape_ipc = {"376B", "376C"}
+    if ipc and ipc.issubset(non_rape_ipc):
+        return False, "INELIGIBLE_NON_RAPE_IPC"
+
+    # Check for non-rape BNS sections 67, 68, 69
+    non_rape_bns = {"67", "68", "69"}
+    if bns and bns.issubset(non_rape_bns):
+        return False, "INELIGIBLE_NON_RAPE_BNS"
+
+    # BNS 71 (repeat offender) does not independently certify rape without qualifying underlying offence
+    if "71" in bns and not bns.intersection(BNSS_184_SUBSTANTIVE_RAPE_BNS):
+        return False, "UNVERIFIED_STATUTORY_ELIGIBILITY"
+
+    # IPC 376E (repeat offender) does not independently certify rape without qualifying underlying offence
+    if "376E" in ipc and not ipc.intersection(CRPC_164A_SUBSTANTIVE_RAPE_IPC):
+        return False, "UNVERIFIED_STATUTORY_ELIGIBILITY"
+
+    # Check substantive qualifying rape sections
+    if bns.intersection(BNSS_184_SUBSTANTIVE_RAPE_BNS):
+        return True, "ELIGIBLE_BNSS_184_1_BNS_RAPE"
+    if ipc.intersection(CRPC_164A_SUBSTANTIVE_RAPE_IPC):
+        return True, "ELIGIBLE_CRPC_164A_IPC_RAPE"
+
+    # POCSO-only cases without explicit rape provisions cannot be automatically certified
+    if pocso:
+        return False, "UNVERIFIED_STATUTORY_ELIGIBILITY"
+
+    return False, "INELIGIBLE_STATUTORY_OFFENCE"
+
+
+def compute_calendar_month_deadline(start_dt: Any, months: int = 2) -> Optional[pd.Timestamp]:
+    """
+    Computes exact statutory deadline using calendar months via pd.DateOffset(months=months).
+    Correctly accounts for calendar month lengths (59, 60, 61, 62 days) and leap years.
+    Returns None if start_dt is NaT or invalid.
+    """
+    if pd.isna(start_dt):
+        return None
+    try:
+        ts = pd.to_datetime(start_dt)
+        return ts + pd.DateOffset(months=months)
+    except Exception:
+        return None
 
 
 def generate_template_zip() -> bytes:
@@ -652,18 +873,25 @@ def compute_funnel_and_bottlenecks(
 
     # Calculate Transition Durations
     transitions_data = []
+    timestamp_anomalies_count = 0
     for case_id, grp in df_events.groupby("case_id"):
         acts = grp["activity"].tolist()
         dts = pd.to_datetime(grp["timestamp"], errors="coerce").tolist()
 
         for i in range(len(acts) - 1):
             if pd.notna(dts[i]) and pd.notna(dts[i + 1]):
-                days = max(0, (dts[i + 1] - dts[i]).days)
+                delta = (dts[i + 1] - dts[i]).days
+                if delta < 0:
+                    # Flag negative timestamp sequence anomaly, preserve original dates, exclude from statistics
+                    timestamp_anomalies_count += 1
+                    continue
                 transitions_data.append({
                     "from_activity": acts[i],
                     "to_activity": acts[i + 1],
                     "pair": f"{acts[i]} -> {acts[i + 1]}",
-                    "duration_days": days
+                    "duration_days": delta,
+                    "start_dt": dts[i],
+                    "end_dt": dts[i + 1]
                 })
 
     df_trans = pd.DataFrame(transitions_data)
@@ -711,7 +939,20 @@ def compute_funnel_and_bottlenecks(
                     "within_24h_pct": round(float((vals <= 1).sum()) / max(1, n) * 100.0, 1)
                 }
             elif "CHARGESHEET" in pair:
+                # Two calendar months calculation using pd.DateOffset(months=2)
+                compliant_count = 0
+                valid_count = 0
+                for _, row_t in grp.iterrows():
+                    s_dt = row_t.get("start_dt")
+                    e_dt = row_t.get("end_dt")
+                    if pd.notna(s_dt) and pd.notna(e_dt):
+                        valid_count += 1
+                        deadline = compute_calendar_month_deadline(s_dt, months=2)
+                        if deadline is not None and e_dt <= deadline:
+                            compliant_count += 1
+                within_2m_pct = round(float(compliant_count) / max(1, valid_count) * 100.0, 1)
                 statutory_compliance = {
+                    "within_two_calendar_months_pct": within_2m_pct,
                     "within_60_days_pct": round(float((vals <= 60).sum()) / max(1, n) * 100.0, 1)
                 }
             elif "FORENSIC" in pair and "MEDICAL" in pair:
@@ -726,9 +967,30 @@ def compute_funnel_and_bottlenecks(
             # Baseline lookup
             base_info = baselines.get(pair, {"median_days": 30.0, "mean_days": 35.0, "benchmark_days": 30.0})
             base_med = base_info.get("median_days", 30.0)
+
+            # Statutory benchmark lookup from project configuration
+            stat_benchmark = base_info.get("benchmark_days")
+            if not stat_benchmark:
+                if "MEDICAL" in pair:
+                    stat_benchmark = 1.0
+                elif "FORENSIC" in pair:
+                    stat_benchmark = 30.0
+                elif "CHARGESHEET" in pair:
+                    stat_benchmark = 60.0
+                elif "COURT" in pair or "VERDICT" in pair:
+                    stat_benchmark = 365.0
+                else:
+                    stat_benchmark = base_med
+
+            # Statutory Delay Ratio formula:
+            # Statutory Delay Ratio = Empirical Median Duration (Days) / Statutory Benchmark (Days)
+            statutory_delay_ratio = round(med / stat_benchmark, 2) if stat_benchmark > 0 else 1.0
             ratio = round(med / base_med, 2) if base_med > 0 else 1.0
 
-            stat_benchmark = base_info.get("benchmark_days")
+            # Distinguish composite E2E and self-transitions
+            is_e2e = "(E2E)" in pair or "E2E" in pair
+            parts = [p.strip() for p in pair.split("->")]
+            is_self = len(parts) == 2 and parts[0] == parts[1]
 
             metric_entry = {
                 "pair": pair,
@@ -745,19 +1007,31 @@ def compute_funnel_and_bottlenecks(
                 "statutory_compliance": statutory_compliance,
                 "baseline_median_days": base_med,
                 "delay_multiplier_vs_baseline": ratio,
-                "statutory_benchmark_days": stat_benchmark
+                "statutory_benchmark_days": stat_benchmark,
+                "statutory_delay_ratio": statutory_delay_ratio,
+                "is_e2e": is_e2e,
+                "is_self": is_self
             }
             transition_metrics[pair] = metric_entry
 
-            if ratio > max_multiplier and n >= 1:
-                max_multiplier = ratio
+            # Select biggest bottleneck by statutory delay ratio (excluding composite E2E and self-transitions)
+            if not is_e2e and not is_self and statutory_delay_ratio > max_multiplier and n >= 1:
+                max_multiplier = statutory_delay_ratio
+                if abs(statutory_delay_ratio - 1.0) < 0.01:
+                    ratio_desc = "At Statutory Benchmark"
+                elif statutory_delay_ratio < 1.0:
+                    ratio_desc = f"{statutory_delay_ratio}x (Within Statutory Benchmark)"
+                else:
+                    ratio_desc = f"{statutory_delay_ratio}x statutory delay multiplier"
+
                 biggest_bottleneck = {
                     "pair": pair,
                     "median_days": med,
-                    "baseline_median_days": base_med,
-                    "delay_multiplier": ratio,
+                    "p95_days": p95,
+                    "baseline_median_days": stat_benchmark,
+                    "delay_multiplier": statutory_delay_ratio,
                     "sample_count": n,
-                    "summary": f"Turnaround of {med} days vs baseline {base_med} days ({ratio}x baseline)"
+                    "summary": f"Turnaround of {med} days vs statutory benchmark {stat_benchmark} days ({ratio_desc})"
                 }
 
     # Identify k-anonymity suppressed district/category groups
@@ -766,20 +1040,27 @@ def compute_funnel_and_bottlenecks(
     district_ranking = []
     if "district" in df_events.columns and not df_events.empty:
         for dist, grp in df_events.groupby("district"):
+            # Distinct case counts for k-anonymity suppression rule
             d_total = grp["case_id"].nunique()
             d_fir = grp[grp["activity"] == "FIR_REGISTERED"]["case_id"].nunique()
             d_chg = grp[grp["activity"] == "CHARGESHEET_FILED"]["case_id"].nunique()
             d_vrd = grp[grp["activity"] == "COURT_VERDICT"]["case_id"].nunique()
 
-            chg_rate = round((d_chg / d_fir * 100.0), 1) if d_fir > 0 else 0.0
-            drop_off = round(max(0.0, 100.0 - chg_rate), 1)
-            vrd_rate = round((d_vrd / d_fir * 100.0), 1) if d_fir > 0 else 0.0
-            is_supp = (0 < d_total < k_threshold)
+            is_supp = (d_total < k_threshold or d_fir < k_threshold or d_total == 0)
 
             if is_supp:
                 k_suppressed.append(f"District {dist} ({d_total} cases < {k_threshold})")
-
-            leak_score = round(drop_off * 0.7 + (100.0 - vrd_rate) * 0.3, 1)
+                chg_rate = None
+                drop_off = None
+                vrd_rate = None
+                leak_score = None
+                status_label = "Insufficient Data"
+            else:
+                chg_rate = round((d_chg / d_fir * 100.0), 1) if d_fir > 0 else 0.0
+                drop_off = round(max(0.0, 100.0 - chg_rate), 1)
+                vrd_rate = round((d_vrd / d_fir * 100.0), 1) if d_fir > 0 else 0.0
+                leak_score = round(drop_off * 0.7 + (100.0 - vrd_rate) * 0.3, 1)
+                status_label = classify_district_severity(leak_score, d_total, d_fir, k_threshold, is_supp)
 
             entry = {
                 "district": str(dist),
@@ -787,24 +1068,28 @@ def compute_funnel_and_bottlenecks(
                 "fir_cases": f"<{k_threshold}" if is_supp else d_fir,
                 "chargesheet_cases": f"<{k_threshold}" if is_supp else d_chg,
                 "verdict_cases": f"<{k_threshold}" if is_supp else d_vrd,
-                "fir_to_chargesheet_rate_pct": chg_rate,
-                "attrition_drop_off_pct": drop_off,
-                "verdict_reach_rate_pct": vrd_rate,
-                "score": leak_score,
-                "leak_score": leak_score,
-                "status": "CRITICAL" if drop_off >= 60.0 else "NORMAL",
+                "fir_to_chargesheet_rate_pct": chg_rate if not is_supp else "Insufficient Data",
+                "attrition_drop_off_pct": drop_off if not is_supp else "Insufficient Data",
+                "verdict_reach_rate_pct": vrd_rate if not is_supp else "Insufficient Data",
+                "score": leak_score if not is_supp else 0.0,
+                "leak_score": leak_score if not is_supp else 0.0,
+                "status": status_label,
                 "is_suppressed": is_supp
             }
             district_leakage.append(entry)
             district_ranking.append({
                 "district": str(dist),
-                "score": leak_score,
-                "leak_score": leak_score,
-                "status": "CRITICAL" if drop_off >= 60.0 else "NORMAL",
-                "drop_off_leak_pct": drop_off
+                "score": leak_score if not is_supp else 0.0,
+                "leak_score": leak_score if not is_supp else 0.0,
+                "status": status_label,
+                "drop_off_leak_pct": drop_off if not is_supp else "Insufficient Data",
+                "is_suppressed": is_supp
             })
 
-    district_ranking.sort(key=lambda x: x["score"], reverse=True)
+    district_ranking.sort(
+        key=lambda x: (not x.get("is_suppressed", False), x.get("score") if x.get("score") is not None else -1),
+        reverse=True
+    )
 
     # Calculate Overall Journey Turnaround Metrics
     durations = []
@@ -853,7 +1138,8 @@ def compute_funnel_and_bottlenecks(
         "district_ranking": district_ranking,
         "journey_metrics": journey_metrics,
         "systemic_leak_points": systemic_leak_points,
-        "k_suppressed_groups": k_suppressed
+        "k_suppressed_groups": k_suppressed,
+        "timestamp_anomalies_count": timestamp_anomalies_count
     }
 
 
@@ -1449,7 +1735,24 @@ def build_dashboard_bundle_from_analysis(
             mean_d = t_data.get("mean_days") or t_data.get("mean_duration_days", med_d)
             p90_d = t_data.get("p90_days") or t_data.get("p90_duration_days", med_d)
             p95_d = t_data.get("p95_days") or t_data.get("p95_duration_days", p90_d)
-            benchmark_d = t_data.get("statutory_benchmark_days") or 60.0
+            benchmark_d = t_data.get("statutory_benchmark_days")
+            if not benchmark_d:
+                if "MEDICAL" in pair:
+                    benchmark_d = 1.0
+                elif "FORENSIC" in pair:
+                    benchmark_d = 30.0
+                elif "CHARGESHEET" in pair:
+                    benchmark_d = 60.0
+                elif "COURT" in pair or "VERDICT" in pair:
+                    benchmark_d = 365.0
+                else:
+                    benchmark_d = 30.0
+
+            stat_ratio = round(med_d / benchmark_d, 2) if benchmark_d > 0 else 1.0
+            parts = [p.strip() for p in pair.split("->")]
+            is_self = len(parts) == 2 and parts[0] == parts[1]
+            is_e2e = "(E2E)" in pair or "E2E" in pair
+
             inter_stage_transitions.append({
                 "transition": pair,
                 "median_duration_days": med_d,
@@ -1457,6 +1760,9 @@ def build_dashboard_bundle_from_analysis(
                 "p90_duration_days": p90_d,
                 "p95_duration_days": p95_d,
                 "statutory_benchmark_days": benchmark_d,
+                "statutory_delay_ratio": stat_ratio,
+                "is_e2e": is_e2e,
+                "is_self": is_self,
                 "sample_count": t_data.get("sample_count", 0)
             })
     bottlenecks["inter_stage_transitions"] = inter_stage_transitions

@@ -79,7 +79,7 @@ def test_compute_district_leakage_diagnostics(setup_analytics_data):
     for dist, metrics in diagnostics["districts"].items():
         assert "vulnerability_score" in metrics
         assert 0.0 <= metrics["vulnerability_score"] <= 100.0
-        assert metrics["status"] in ["NORMAL", "CRITICAL"]
+        assert metrics["status"] in ["NORMAL", "MODERATE", "ELEVATED", "SEVERE", "CRITICAL", "INSUFFICIENT_DATA"]
         assert metrics["total_cases"] > 0
 
 
