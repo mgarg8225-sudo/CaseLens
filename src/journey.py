@@ -128,8 +128,8 @@ def discover_process_variants(df_events: pd.DataFrame) -> Tuple[pd.DataFrame, Di
         trace_str = " -> ".join(act_seq)
 
         # Throughput time
-        dts = pd.to_datetime(grp["timestamp"])
-        duration_days = (dts.max() - dts.min()).days
+        dts = pd.to_datetime(grp["timestamp"], errors="coerce").dropna()
+        duration_days = max(0, (dts.max() - dts.min()).days) if len(dts) >= 2 else 0
 
         district = grp["district"].iloc[0]
         cat = grp["case_category"].iloc[0]
@@ -185,16 +185,21 @@ def compute_directly_follows_graph(df_events: pd.DataFrame) -> Tuple[pd.DataFram
     transitions = []
 
     for case_id, grp in df_events.groupby("case_id"):
-        acts = grp["activity"].tolist()
-        dts = pd.to_datetime(grp["timestamp"]).tolist()
-        district = grp["district"].iloc[0]
-        cat = grp["case_category"].iloc[0]
+        grp_sorted = grp.assign(_dt=pd.to_datetime(grp["timestamp"], errors="coerce")).sort_values(by=["_dt", "stage_order"] if "stage_order" in grp.columns else ["_dt"])
+        acts = grp_sorted["activity"].tolist()
+        dts = grp_sorted["_dt"].tolist()
+        district = grp_sorted["district"].iloc[0]
+        cat = grp_sorted["case_category"].iloc[0]
 
         for i in range(len(acts) - 1):
             src = acts[i]
             tgt = acts[i + 1]
-            # Days elapsed
-            delta_days = max(0, (dts[i + 1] - dts[i]).days)
+            if pd.isna(dts[i]) or pd.isna(dts[i + 1]):
+                continue
+            delta_days = (dts[i + 1] - dts[i]).days
+            if delta_days < 0:
+                # Sequence anomaly: exclude from positive transition duration statistics
+                continue
 
             transitions.append({
                 "case_id": case_id,
@@ -341,9 +346,44 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
     print("\nComputing Directly-Follows Graph (DFG) and transition durations...")
     df_dfg, dfg_metrics = compute_directly_follows_graph(df_events)
 
-    # Compute PM4Py DFG
-    print("\nExecuting PM4Py process mining discovery...")
-    pm4py_metrics = discover_pm4py_dfg(df_events)
+    # Compute PM4Py DFG if available, else use native fallback
+    if _HAS_PM4PY:
+        print("\nExecuting PM4Py process mining discovery...")
+        pm4py_metrics = discover_pm4py_dfg(df_events)
+        pm4py_metrics["process_mining_engine"] = "PM4Py Process Mining Discovery"
+        pm4py_metrics["engine_type"] = "pm4py"
+        pm4py_metrics["is_pm4py_available"] = True
+        pm4py_path = os.path.join(data_dir, "journey_pm4py.json")
+        with open(pm4py_path, "w") as f:
+            json.dump(pm4py_metrics, f, indent=2)
+        print(f"Saved PM4Py process mining metrics to: {pm4py_path}")
+    else:
+        print("\nPM4Py unavailable or restricted; using native Directly-Follows Graph metrics.")
+        pm4py_metrics = {
+            "process_mining_engine": "Native Pandas Directly Follows Graph (DFG)",
+            "engine_type": "native_pandas_dfg",
+            "is_pm4py_available": False,
+            "engine_note": "PM4Py C-extensions (cvxopt/glpk) unavailable or restricted; using deterministic Native Pandas DFG fallback.",
+            "start_activities": variant_metrics.get("start_activities_pct", {}),
+            "end_activities": variant_metrics.get("exit_points_pct", {}),
+            "frequency_dfg": [
+                {"from_activity": r["from_activity"], "to_activity": r["to_activity"], "frequency": int(r["transition_count"])}
+                for r in df_dfg.to_dict(orient="records")
+            ] if not df_dfg.empty else [],
+            "performance_dfg": [
+                {
+                    "from_activity": r["from_activity"],
+                    "to_activity": r["to_activity"],
+                    "mean_days": float(r["avg_duration_days"]),
+                    "median_days": float(r["median_duration_days"]),
+                    "max_days": float(r.get("max_duration_days", r["avg_duration_days"]))
+                }
+                for r in df_dfg.to_dict(orient="records")
+            ] if not df_dfg.empty else []
+        }
+        pm4py_path = os.path.join(data_dir, "journey_pm4py.json")
+        with open(pm4py_path, "w") as f:
+            json.dump(pm4py_metrics, f, indent=2)
 
     # Save outputs
     variants_path = os.path.join(data_dir, "journey_variants.json")
@@ -353,11 +393,6 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
     dfg_path = os.path.join(data_dir, "journey_dfg.json")
     with open(dfg_path, "w") as f:
         json.dump(dfg_metrics, f, indent=2)
-
-    pm4py_path = os.path.join(data_dir, "journey_pm4py.json")
-    with open(pm4py_path, "w") as f:
-        json.dump(pm4py_metrics, f, indent=2)
-    print(f"Saved PM4Py process mining metrics to: {pm4py_path}")
 
     # Overall Journey Summary
     journey_summary = {
@@ -369,7 +404,10 @@ def run_journey_analysis(data_dir: str = "data") -> Dict[str, Any]:
         "exit_points_pct": variant_metrics["exit_points_pct"],
         "top_variants": variant_metrics["top_variants"][:5],
         "top_transitions": df_dfg.head(6).to_dict(orient="records") if not df_dfg.empty else [],
-        "pm4py_transitions_count": len(pm4py_metrics["frequency_dfg"])
+        "pm4py_transitions_count": len(pm4py_metrics["frequency_dfg"]),
+        "process_mining_engine": "PM4Py Process Mining Discovery" if _HAS_PM4PY else "Native Pandas Directly Follows Graph (DFG)",
+        "engine_type": "pm4py" if _HAS_PM4PY else "native_pandas_dfg",
+        "is_pm4py_available": _HAS_PM4PY
     }
 
     metrics_path = os.path.join(data_dir, "journey_metrics.json")

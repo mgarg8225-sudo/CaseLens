@@ -13,7 +13,8 @@ from src.journey import (
     discover_process_variants,
     compute_directly_follows_graph,
     discover_pm4py_dfg,
-    run_journey_analysis
+    run_journey_analysis,
+    _HAS_PM4PY
 )
 
 TEST_JOURNEY_DIR = "tests/test_journey_data"
@@ -84,6 +85,7 @@ def test_compute_directly_follows_graph(setup_journey_data):
     assert "district_dfg" in summary
 
 
+@pytest.mark.skipif(not _HAS_PM4PY, reason="PM4Py unavailable or restricted by system policy")
 def test_discover_pm4py_dfg(setup_journey_data):
     """Validates PM4Py process mining discovery of transitions and durations."""
     df_events = build_event_log(data_dir=setup_journey_data)

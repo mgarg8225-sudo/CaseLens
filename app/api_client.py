@@ -481,10 +481,12 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
             "overall_conviction_reach_rate_pct": 0.0,
             "overall_conviction_rate_pct": 0.0,
             "overall_attrition_rate_pct": 0.0,
-            "median_end_to_end_journey_days": 0.0
+            "median_end_to_end_journey_days": None
         },
         "systemic_leak_points_detected": [],
-        "district_vulnerability_ranking": []
+        "district_vulnerability_ranking": [],
+        "timestamp_anomalies_count": 0,
+        "anomalous_cases_count": 0
     },
     "funnel": {
         "stages": ["FIR", "Medical Exam", "Forensic Lab", "Chargesheet", "Court Verdict"],
@@ -498,7 +500,10 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
     },
     "district_leakage": {},
     "dp_districts": {},
-    "bottlenecks": {},
+    "bottlenecks": {
+        "timestamp_anomalies_count": 0,
+        "anomalous_cases_count": 0
+    },
     "categories": {},
     "evaluation": {
         "pairwise_metrics": {},
@@ -511,7 +516,7 @@ SAMPLE_JSON_DEFAULTS: Dict[str, Any] = {
     },
     "policy_context": {},
     "journey": {
-        "median_journey_days": 0.0,
+        "median_journey_days": None,
         "total_cases": 0,
         "total_events": 0
     }

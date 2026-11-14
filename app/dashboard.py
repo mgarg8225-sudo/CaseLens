@@ -935,6 +935,8 @@ def compute_dashboard_kpis(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "lp02_drop": fmt_pct(lp02.get("drop_off_leak_pct")),
         "lp03_delay": fmt_float(lp03.get("trial_delay_days"), 1),
         "lp03_multiplier": fmt_float(lp03.get("multiplier"), 2),
+        "median_journey_display": fmt_float(journey.get("median_journey_duration_days") if journey.get("median_journey_duration_days") is not None else (journey.get("median_journey_days") if journey.get("median_journey_days") is not None else health.get("median_end_to_end_journey_days")), 1),
+        "median_journey_days": _num(journey.get("median_journey_duration_days") if journey.get("median_journey_duration_days") is not None else (journey.get("median_journey_days") if journey.get("median_journey_days") is not None else health.get("median_end_to_end_journey_days"))),
     }
 
 
@@ -2423,10 +2425,18 @@ elif PAGE == "📊 Executive Overview":
         trans_list = []
         for pair, t_data in bottlenecks_data.items():
             if isinstance(t_data, dict) and "->" in str(pair):
-                med_d = t_data.get("median_days") or t_data.get("median_duration_days", 0.0)
-                mean_d = t_data.get("mean_days") or t_data.get("mean_duration_days", med_d)
-                p90_d = t_data.get("p90_days") or t_data.get("p90_duration_days", med_d)
-                p95_d = t_data.get("p95_days") or t_data.get("p95_duration_days", p90_d)
+                med_d = t_data.get("median_days")
+                if med_d is None:
+                    med_d = t_data.get("median_duration_days")
+                mean_d = t_data.get("mean_days")
+                if mean_d is None:
+                    mean_d = t_data.get("mean_duration_days")
+                p90_d = t_data.get("p90_days")
+                if p90_d is None:
+                    p90_d = t_data.get("p90_duration_days")
+                p95_d = t_data.get("p95_days")
+                if p95_d is None:
+                    p95_d = t_data.get("p95_duration_days")
                 bench_d = t_data.get("statutory_benchmark_days")
                 if not bench_d:
                     if "MEDICAL" in pair:
@@ -2461,17 +2471,25 @@ elif PAGE == "📊 Executive Overview":
         step_transitions = trans_list
 
     def get_statutory_ratio(t):
-        med = t.get("median_duration_days") or t.get("median_days", 0.0)
+        med = t.get("median_duration_days")
+        if med is None:
+            med = t.get("median_days")
+        if med is None:
+            return 0.0
         bench = t.get("statutory_benchmark_days") or 60.0
         return (med / bench) if bench > 0 else 1.0
 
     primary_trans = max(step_transitions, key=get_statutory_ratio, default={}) if step_transitions else {}
 
-    if primary_trans and (primary_trans.get("median_duration_days") or primary_trans.get("median_days")):
-        med_val = primary_trans.get("median_duration_days") or primary_trans.get("median_days", 0.0)
+    if primary_trans and (primary_trans.get("median_duration_days") is not None or primary_trans.get("median_days") is not None):
+        med_val = primary_trans.get("median_duration_days")
+        if med_val is None:
+            med_val = primary_trans.get("median_days")
         bench_val = primary_trans.get("statutory_benchmark_days", 60.0)
         stat_ratio = get_statutory_ratio(primary_trans)
-        p95_val = primary_trans.get("p95_duration_days") or primary_trans.get("p95_days", 0.0)
+        p95_val = primary_trans.get("p95_duration_days")
+        if p95_val is None:
+            p95_val = primary_trans.get("p95_days")
         tr_name = primary_trans.get("transition", "Stage")
 
         if abs(stat_ratio - 1.0) < 0.01:
@@ -2481,9 +2499,10 @@ elif PAGE == "📊 Executive Overview":
         else:
             ratio_badge = f"{stat_ratio:.2f}x Statutory Delay Multiplier"
 
+        p95_str = f"{p95_val:.1f}d" if isinstance(p95_val, (int, float)) else NA
         sig1_title = f"Primary Latency Bottleneck ({tr_name})"
-        sig1_val = f"{med_val:.1f} Days (Median)"
-        sig1_sub = f"{ratio_badge} (Mandate: {bench_val:.0f}d) | P95 Tail Latency: {p95_val:.1f}d"
+        sig1_val = f"{med_val:.1f} Days (Median)" if isinstance(med_val, (int, float)) else NA
+        sig1_sub = f"{ratio_badge} (Mandate: {bench_val:.0f}d) | P95 Tail Latency: {p95_str}"
     else:
         sig1_title = "Primary Latency Bottleneck"
         sig1_val = "Baseline"
@@ -2514,9 +2533,9 @@ elif PAGE == "📊 Executive Overview":
         sig3_val = f"{rec_val * 100:.1f}% / {f1_val * 100:.1f}%"
         sig3_sub = "Pairwise Recall / B-Cubed F1"
     else:
-        sig3_title = f"Linkage Quality ({l_short})"
-        sig3_val = "Validated"
-        sig3_sub = "Multi-institutional trajectory linkage"
+        sig3_title = f"Linkage Method ({l_short})"
+        sig3_val = "Unsupervised Linkage"
+        sig3_sub = "Predicted Clusters Formed (Ground Truth N/A)"
 
     sig1, sig2, sig3 = st.columns(3)
     with sig1:
@@ -2736,9 +2755,9 @@ elif PAGE in ["🔻 Case Funnel", "🔻 Funnel with Uncertainty Ranges"]:
         text_labels = []
         for s, val, err in zip(funnel_stages, noisy_counts, err_margins):
             if s.get("is_k_anonymity_suppressed") or str(s.get("noisy_case_count")) == "<5":
-                text_labels.append("<5<br/>(Suppressed)")
+                text_labels.append("<5 (Suppressed)")
             else:
-                text_labels.append(f"{val:,}<br/>(±{err:.1f})")
+                text_labels.append(f"{val:,} (±{err:.1f})")
 
         fig_funnel = go.Figure()
 
@@ -2850,11 +2869,43 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
         render_too_few_cases_warning()
         st.stop()
 
+    anom_cnt = bottlenecks.get("timestamp_anomalies_count", 0) or summary_data.get("timestamp_anomalies_count", 0) or 0
+    anom_cases_cnt = bottlenecks.get("anomalous_cases_count", 0) or summary_data.get("anomalous_cases_count", 0) or 0
+    engine_name = bottlenecks.get("process_mining_engine", "Native Pandas Directly Follows Graph (DFG)")
+
+    # Process Discovery Engine Attribution & Distinction
+    st.markdown(f"""
+        <div style="display: flex; align-items: center; justify-content: space-between; background: #F8F9FA; border: 1px solid #E3DED6; border-radius: 4px; padding: 10px 16px; margin-bottom: 14px;">
+            <div style="font-size: 0.88rem; color: #222222;">
+                <strong>Process Discovery Engine:</strong> {engine_name}
+                <span style="background: #E0E7FF; color: #3730A3; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 0.75rem; margin-left: 8px;">Native Pandas Graph</span>
+            </div>
+            <div style="font-size: 0.80rem; color: #5F5F5F;">
+                Deterministic in-memory DFG trajectory graph; empirical percentiles calculated via Pandas without requiring external C/GLPK solvers.
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
+    # Data Quality Notice for Timestamp Anomalies
+    if anom_cnt > 0:
+        cases_suffix = f" ({anom_cases_cnt} unique {'case' if anom_cases_cnt == 1 else 'cases'} affected)" if anom_cases_cnt > 0 else ""
+        st.warning(
+            f"⚠️ **Data Quality Notice: {anom_cnt} Timestamp Sequence Anomalies Flagged & Excluded{cases_suffix}**: "
+            f"Inverted or reversed event timestamps (subsequent milestone dated before earlier milestone) "
+            f"were detected in source records. These anomalous transitions have been strictly excluded from duration percentiles "
+            f"(mean, median, P90, P95) to prevent distortion, while original records remain preserved in the raw event log."
+        )
+    else:
+        st.markdown(
+            "<div style='font-size: 0.82rem; color: #047857; margin-bottom: 14px;'>✓ <strong>Data Quality Audit:</strong> 0 timestamp sequence anomalies detected in active cohort. All transition intervals chronologically valid.</div>",
+            unsafe_allow_html=True
+        )
+
     # Key Stage Transitions
     key_transitions = [
         "FIR_REGISTERED -> MEDICAL_EXAM",
         "MEDICAL_EXAM -> FORENSIC_REPORT",
-        "FORENSIC_REPORT -> CHARGESHEET_FILED",
+        "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)",
         "CHARGESHEET_FILED -> COURT_VERDICT"
     ]
 
@@ -2874,11 +2925,13 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
     stat_tooltips = [
         "BNSS Section 184(1) / CrPC Section 164A(1): Where a rape or attempted-rape offence is under investigation and medical examination is proposed, the woman must be sent for examination within 24 hours of receiving information. In the absence of an exact information-received timestamp, FIR date is used as an operational proxy.",
         "MHA Women Safety Advisory / State SAEK SOP: 30-day administrative turnaround target to support statutory investigation completion.",
-        "BNSS Section 193(2) / CrPC Section 173(1A): Mandatory investigation completion within 2 calendar months for eligible BNS (Sec 64-68, 70, 71) and POCSO offences. Chargesheet filing date used as proxy.",
+        "BNSS Section 193(2) / CrPC Section 173(1A): Mandatory investigation completion within 2 calendar months for eligible BNS (Sec 64-68, 70, 71) and POCSO offences. Measured from FIR initiation to chargesheet filing (chargesheet filing date used as proxy).",
         "POCSO Section 35(2) Proxy: Measures prosecution filing to verdict. Does not claim statutory compliance, which commences strictly upon Special Court taking cognizance."
     ]
     for idx, (trans_key, label, badge, tooltip) in enumerate(zip(key_transitions, stat_labels, stat_badges, stat_tooltips)):
         trans_data = bottlenecks.get(trans_key, {})
+        if not trans_data and trans_key == "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)":
+            trans_data = bottlenecks.get("FIR_REGISTERED -> CHARGESHEET_FILED", {}) or bottlenecks.get("FORENSIC_REPORT -> CHARGESHEET_FILED", {})
         col = [col1, col2, col3, col4][idx]
         with col:
             med = trans_data.get("median_days")
@@ -2942,6 +2995,18 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
         p75_d = selected_data.get('p75_days')
         p75_disp = f"{p75_d:.1f}d" if isinstance(p75_d, (int, float)) else NA
         stat_comp = statutory_compliance_label(selected_data.get('statutory_compliance'))
+
+        # Safe evaluation of sample count
+        has_valid_sample = isinstance(s_cnt, (int, float)) and not math.isnan(s_cnt) and not math.isinf(s_cnt) and s_cnt > 0
+
+        if anom_cnt > 0:
+            cases_text = f" ({anom_cases_cnt} unique {'case' if anom_cases_cnt == 1 else 'cases'})" if anom_cases_cnt > 0 else ""
+            anom_label = f'<span style="color: #B45309; font-weight: 600;">{anom_cnt} excluded{cases_text}</span>'
+        elif has_valid_sample:
+            anom_label = '<span style="color: #047857;">0 (100% valid)</span>'
+        else:
+            anom_label = '<span style="color: #5F5F5F;">N/A (No Evaluated Transitions)</span>'
+
         st.markdown("### 📊 Non-Parametric Latency Percentiles")
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 16px; color: #222222;">
@@ -2951,6 +3016,7 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
                 <p><strong>Interquartile Range (IQR):</strong> {iqr_disp} days (P25: {p25_disp} - P75: {p75_disp})</p>
                 <p><strong>Severe Delay (P90):</strong> {p90_disp} days</p>
                 <p><strong>Extreme Outlier (P95):</strong> {p95_disp} days</p>
+                <p><strong>Timestamp Sequence Anomalies:</strong> {anom_label}</p>
                 <hr style="border-color: #E3DED6; margin: 10px 0;"/>
                 <p style="color: #8B1E3F; font-weight: 500;"><strong>Statutory Mandate Compliance:</strong> {stat_comp}</p>
             </div>
@@ -2962,12 +3028,20 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
 # ==============================================================================
 
 elif PAGE in ["🔗 Linkage Quality", "🔗 Linkage Quality & Evaluation"]:
-    st.markdown("""
+    eval_info_hdr = DATA.get("evaluation", {})
+    l_method_hdr = eval_info_hdr.get("linkage_method", "Fellegi-Sunter Pairwise Scoring")
+    pw_metrics_hdr = eval_info_hdr.get("pairwise_metrics", {})
+    has_ground_truth = (pw_metrics_hdr.get("at_threshold", {}).get("recall") is not None or pw_metrics_hdr.get("recall") is not None)
+    eval_desc = (
+        f"Rigorous linkage evaluation of the {l_method_hdr} model benchmarked against synthetic ground truth across all five institutional data sources."
+        if has_ground_truth else
+        f"Evaluation of candidate pair match probabilities, decision boundaries, and cluster formations reconstructed by the {l_method_hdr} model (Unsupervised / No Ground Truth)."
+    )
+    st.markdown(f"""
         <div class="hero-banner">
             <div class="hero-title">Linkage Quality: Model Evaluation & Precision-Recall Trade-offs</div>
             <div class="hero-subtitle">
-                Rigorous linkage evaluation of the Fellegi-Sunter / Splink probabilistic record linkage model 
-                benchmarked against ground truth across all five institutional data sources.
+                {eval_desc}
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -3231,8 +3305,8 @@ elif PAGE in ["🛡️ Privacy & Protection", "🛡️ Survivor Privacy & DP Eng
         <div class="hero-banner">
             <div class="hero-title">Privacy & Protection: Differential Privacy & Confidentiality Engine</div>
             <div class="hero-subtitle">
-                Algorithmic privacy protections guaranteeing zero re-identification of survivors: Laplace mechanism 
-                noise injection, Sequential Composition privacy budget accounting, and adversarial attack defense.
+                Algorithmic privacy protections: calibrated Laplace mechanism noise injection,
+                Sequential Composition privacy budget accounting, and adversarial attack defense.
             </div>
         </div>
     """, unsafe_allow_html=True)
@@ -3359,10 +3433,11 @@ elif PAGE in ["🛡️ Privacy & Protection", "🛡️ Survivor Privacy & DP Eng
         st.markdown(f"""
             <div style="background: #FFFFFF; border: 1px solid #E3DED6; border-radius: 4px; padding: 14px; margin-top: 14px;">
                 <p><strong>Laplace Scale (b = Δf / ε):</strong> {scale_b:.2f}</p>
-                <p><strong>95% Theoretical Error Bound:</strong> ±{margin_95:.2f} cases</p>
+                <p><strong>95% Statistical Confidence Margin of Injected Noise:</strong> ±{margin_95:.2f} cases</p>
                 <p style="font-size: 0.85rem; color: #5F5F5F;">
-                    Under ε={sim_eps}, 95% of all analytical queries will have error no greater than 
-                    ±{margin_95:.1f} cases, neutralizing membership inference while maintaining statistical utility.
+                    Under ε={sim_eps} and query sensitivity Δf={sim_sens:.0f}, the Laplace scale is b = {scale_b:.2f}.
+                    The 95% statistical confidence margin is margin = -b · ln(0.05) ≈ ±{margin_95:.1f} cases.
+                    Approximately 95% of noise draws fall within this interval, while ~5% statistically exceed it due to the infinite support of the Laplace distribution.
                 </p>
             </div>
         """, unsafe_allow_html=True)

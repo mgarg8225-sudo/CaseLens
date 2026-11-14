@@ -83,10 +83,12 @@ def compute_funnel_metrics(df_events: pd.DataFrame) -> Dict[str, Any]:
             step_conv = 100.0
             step_leak = 0.0
         else:
-            step_conv = round((count / prev_count * 100.0), 2) if prev_count and prev_count > 0 else 0.0
+            step_conv = round((min(count, prev_count) / prev_count * 100.0), 2) if prev_count and prev_count > 0 else 0.0
             step_leak = round(max(0.0, 100.0 - step_conv), 2)
 
-        cum_retention = round((count / fir_count * 100.0), 2) if fir_count > 0 else 0.0
+        # Cohort retention from FIR: proportion of FIR-initiating cases reaching this stage
+        c_from_fir = int((df_cases["FIR_REGISTERED"] & df_cases[stage]).sum()) if "FIR_REGISTERED" in df_cases else count
+        cum_retention = round((min(c_from_fir, fir_count) / fir_count * 100.0), 2) if fir_count > 0 else 0.0
 
         overall_funnel.append({
             "stage_id": stage,
@@ -106,9 +108,10 @@ def compute_funnel_metrics(df_events: pd.DataFrame) -> Dict[str, Any]:
         d_prev = None
         for idx, stage in enumerate(CANONICAL_STAGES):
             c = int(grp[stage].sum())
-            conv = 100.0 if idx == 0 else (round((c / d_prev * 100.0), 2) if d_prev and d_prev > 0 else 0.0)
+            conv = 100.0 if idx == 0 else (round((min(c, d_prev) / d_prev * 100.0), 2) if d_prev and d_prev > 0 else 0.0)
             leak = 0.0 if idx == 0 else round(max(0.0, 100.0 - conv), 2)
-            ret = round((c / d_fir * 100.0), 2) if d_fir > 0 else 0.0
+            c_ret = int((grp["FIR_REGISTERED"] & grp[stage]).sum()) if "FIR_REGISTERED" in grp else c
+            ret = round((min(c_ret, d_fir) / d_fir * 100.0), 2) if d_fir > 0 else 0.0
             d_list.append({
                 "stage_id": stage,
                 "case_count": c,
@@ -127,10 +130,12 @@ def compute_funnel_metrics(df_events: pd.DataFrame) -> Dict[str, Any]:
         c_prev = None
         for idx, stage in enumerate(CANONICAL_STAGES):
             c = int(grp[stage].sum())
-            conv = 100.0 if idx == 0 else (round((c / c_prev * 100.0), 2) if c_prev and c_prev > 0 else 0.0)
+            conv = 100.0 if idx == 0 else (round((min(c, c_prev) / c_prev * 100.0), 2) if c_prev and c_prev > 0 else 0.0)
             leak = 0.0 if idx == 0 else round(max(0.0, 100.0 - conv), 2)
-            ret = round((c / c_fir * 100.0), 2) if c_fir > 0 else 0.0
-            c_list.append({
+            c_ret = int((grp["FIR_REGISTERED"] & grp[stage]).sum()) if "FIR_REGISTERED" in grp else c
+            ret = round((min(c_ret, c_fir) / c_fir * 100.0), 2) if c_fir > 0 else 0.0
+            d_list = c_list
+            d_list.append({
                 "stage_id": stage,
                 "case_count": c,
                 "step_conversion_pct": conv,
@@ -434,56 +439,108 @@ def compute_transition_bottlenecks(df_events: pd.DataFrame) -> Dict[str, Any]:
     """
     Computes rigorous non-parametric duration percentiles and statutory compliance
     metrics for institutional transitions.
+    Excludes negative timestamp sequence anomalies from duration statistics.
+    Applies Section 193(2) and Section 184(1) eligibility whitelists.
     """
+    from src.upload_analysis import (
+        check_bnss_193_eligibility,
+        check_bnss_184_eligibility,
+        compute_calendar_month_deadline
+    )
+    stage_order = {
+        "FIR_REGISTERED": 1,
+        "MEDICAL_EXAM": 2,
+        "FORENSIC_REPORT": 3,
+        "CHARGESHEET_FILED": 4,
+        "COURT_VERDICT": 5
+    }
     transitions = []
+    timestamp_anomalies_count = 0
+    anomalous_case_ids: Set[str] = set()
 
     for case_id, grp in df_events.groupby("case_id"):
-        acts = grp["activity"].tolist()
-        dts = pd.to_datetime(grp["timestamp"]).tolist()
-        dist = grp["district"].iloc[0]
-        cat = grp["case_category"].iloc[0]
+        grp_work = grp.copy()
+        grp_work["_dt"] = pd.to_datetime(grp_work["timestamp"], errors="coerce")
+        grp_work["_so"] = grp_work["activity"].map(lambda a: stage_order.get(a, 99))
+        grp_sorted = grp_work.sort_values(by=["_dt", "_so"]).reset_index(drop=True)
+
+        acts = grp_sorted["activity"].tolist()
+        dts = grp_sorted["_dt"].tolist()
+        dist = grp_sorted["district"].iloc[0] if "district" in grp_sorted.columns else "Unknown"
+        cat = grp_sorted["case_category"].iloc[0] if "case_category" in grp_sorted.columns else "general_violence"
+        sec = grp_sorted["legal_sections"].iloc[0] if "legal_sections" in grp_sorted.columns else None
 
         # Consecutive transitions
         for i in range(len(acts) - 1):
             src = acts[i]
             tgt = acts[i + 1]
-            delta_days = max(0, (dts[i + 1] - dts[i]).days)
+            if pd.isna(dts[i]) or pd.isna(dts[i + 1]):
+                continue
+            delta_days = (dts[i + 1] - dts[i]).days
+            if delta_days < 0:
+                timestamp_anomalies_count += 1
+                anomalous_case_ids.add(str(case_id))
+                continue
+
             transitions.append({
+                "case_id": case_id,
                 "from_activity": src,
                 "to_activity": tgt,
                 "pair": f"{src} -> {tgt}",
                 "duration_days": delta_days,
+                "start_dt": dts[i],
+                "end_dt": dts[i + 1],
                 "district": dist,
-                "category": cat
+                "category": cat,
+                "legal_sections": sec
             })
 
         # End-to-end FIR -> Chargesheet and FIR -> Court
-        act_dict = { acts[i]: dts[i] for i in range(len(acts)) }
+        act_dict = { acts[i]: dts[i] for i in range(len(acts)) if pd.notna(dts[i]) }
         if "FIR_REGISTERED" in act_dict and "CHARGESHEET_FILED" in act_dict:
-            d = max(0, (act_dict["CHARGESHEET_FILED"] - act_dict["FIR_REGISTERED"]).days)
-            transitions.append({
-                "from_activity": "FIR_REGISTERED",
-                "to_activity": "CHARGESHEET_FILED",
-                "pair": "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)",
-                "duration_days": d,
-                "district": dist,
-                "category": cat
-            })
+            d = (act_dict["CHARGESHEET_FILED"] - act_dict["FIR_REGISTERED"]).days
+            if d < 0:
+                timestamp_anomalies_count += 1
+                anomalous_case_ids.add(str(case_id))
+            else:
+                transitions.append({
+                    "case_id": case_id,
+                    "from_activity": "FIR_REGISTERED",
+                    "to_activity": "CHARGESHEET_FILED",
+                    "pair": "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)",
+                    "duration_days": d,
+                    "start_dt": act_dict["FIR_REGISTERED"],
+                    "end_dt": act_dict["CHARGESHEET_FILED"],
+                    "district": dist,
+                    "category": cat,
+                    "legal_sections": sec
+                })
 
         if "FIR_REGISTERED" in act_dict and "COURT_VERDICT" in act_dict:
-            d = max(0, (act_dict["COURT_VERDICT"] - act_dict["FIR_REGISTERED"]).days)
-            transitions.append({
-                "from_activity": "FIR_REGISTERED",
-                "to_activity": "COURT_VERDICT",
-                "pair": "FIR_REGISTERED -> COURT_VERDICT (E2E)",
-                "duration_days": d,
-                "district": dist,
-                "category": cat
-            })
+            d = (act_dict["COURT_VERDICT"] - act_dict["FIR_REGISTERED"]).days
+            if d < 0:
+                timestamp_anomalies_count += 1
+                anomalous_case_ids.add(str(case_id))
+            else:
+                transitions.append({
+                    "case_id": case_id,
+                    "from_activity": "FIR_REGISTERED",
+                    "to_activity": "COURT_VERDICT",
+                    "pair": "FIR_REGISTERED -> COURT_VERDICT (E2E)",
+                    "duration_days": d,
+                    "start_dt": act_dict["FIR_REGISTERED"],
+                    "end_dt": act_dict["COURT_VERDICT"],
+                    "district": dist,
+                    "category": cat,
+                    "legal_sections": sec
+                })
 
     df_trans = pd.DataFrame(transitions)
 
     transition_metrics = {}
+    if df_trans.empty:
+        return transition_metrics
+
     for pair, grp in df_trans.groupby("pair"):
         vals = grp["duration_days"].values
         n = len(vals)
@@ -504,15 +561,53 @@ def compute_transition_bottlenecks(df_events: pd.DataFrame) -> Dict[str, Any]:
         # Statutory benchmarks
         compliance = {}
         if "CHARGESHEET" in pair:
-            # 60-day investigation statutory guideline (e.g. POCSO / rape cases under CrPC / BNSS)
-            within_60d = round(float(np.sum(vals <= 60) / n * 100.0), 1)
-            compliance["within_60_days_pct"] = within_60d
+            compliant_count = 0
+            verified_count = 0
+            unverified_count = 0
+            for _, r in grp.iterrows():
+                sec_str = r.get("legal_sections")
+                cat_str = r.get("category")
+                is_elig, _ = check_bnss_193_eligibility(sec_str, offense_category=cat_str)
+                if not is_elig:
+                    unverified_count += 1
+                    continue
+                s_dt = r.get("start_dt")
+                e_dt = r.get("end_dt")
+                if pd.notna(s_dt) and pd.notna(e_dt):
+                    verified_count += 1
+                    deadline = compute_calendar_month_deadline(s_dt, months=2)
+                    if deadline is not None and e_dt <= deadline:
+                        compliant_count += 1
+            within_2m_pct = round(float(compliant_count) / max(1, verified_count) * 100.0, 1) if verified_count > 0 else None
+            compliance["within_two_calendar_months_pct"] = within_2m_pct
+            compliance["within_60_days_pct"] = round(float(np.sum(vals <= 60) / n * 100.0), 1)
+            compliance["verified_eligible_cases"] = verified_count
+            compliance["unverified_cases"] = unverified_count
         elif "MEDICAL" in pair:
-            within_24h = round(float(np.sum(vals <= 1) / n * 100.0), 1)
-            compliance["within_24h_pct"] = within_24h
+            compliant_count = 0
+            verified_count = 0
+            unverified_count = 0
+            for _, r in grp.iterrows():
+                sec_str = r.get("legal_sections")
+                cat_str = r.get("category")
+                is_elig, _ = check_bnss_184_eligibility(sec_str, offense_category=cat_str)
+                if not is_elig:
+                    unverified_count += 1
+                    continue
+                verified_count += 1
+                dur = r.get("duration_days", 0)
+                if dur <= 1:
+                    compliant_count += 1
+            within_24h_pct = round(float(compliant_count) / max(1, verified_count) * 100.0, 1) if verified_count > 0 else None
+            compliance["within_24h_pct"] = within_24h_pct
+            compliance["verified_eligible_cases"] = verified_count
+            compliance["unverified_cases"] = unverified_count
         elif "FORENSIC" in pair:
             within_30d = round(float(np.sum(vals <= 30) / n * 100.0), 1)
             compliance["within_30_days_pct"] = within_30d
+        elif "COURT" in pair or "VERDICT" in pair:
+            within_365d = round(float(np.sum(vals <= 365) / n * 100.0), 1)
+            compliance["within_365_days_pct"] = within_365d
 
         # Delay histograms
         buckets = {
@@ -524,6 +619,23 @@ def compute_transition_bottlenecks(df_events: pd.DataFrame) -> Dict[str, Any]:
             "181_to_365_days": int(np.sum((vals > 180) & (vals <= 365))),
             ">365_days": int(np.sum(vals > 365))
         }
+
+        # Statutory benchmark lookup
+        if "MEDICAL" in pair:
+            stat_bench = 1.0
+        elif "FORENSIC" in pair:
+            stat_bench = 30.0
+        elif "CHARGESHEET" in pair:
+            stat_bench = 60.0
+        elif "COURT" in pair or "VERDICT" in pair:
+            stat_bench = 365.0
+        else:
+            stat_bench = 30.0
+
+        stat_delay_ratio = round(median_val / stat_bench, 2) if stat_bench > 0 else 1.0
+        is_e2e = "(E2E)" in pair or "E2E" in pair
+        parts = [p.strip() for p in pair.split("->")]
+        is_self = len(parts) == 2 and parts[0] == parts[1]
 
         transition_metrics[pair] = {
             "sample_count": n,
@@ -538,6 +650,10 @@ def compute_transition_bottlenecks(df_events: pd.DataFrame) -> Dict[str, Any]:
             "min_days": min_val,
             "max_days": max_val,
             "statutory_compliance": compliance,
+            "statutory_benchmark_days": stat_bench,
+            "statutory_delay_ratio": stat_delay_ratio,
+            "is_e2e": is_e2e,
+            "is_self": is_self,
             "delay_buckets": buckets
         }
 
@@ -851,12 +967,14 @@ def compute_filtered_summary(
                 "overall_conviction_reach_rate_pct": 0.0,
                 "overall_conviction_rate_pct": 0.0,
                 "overall_attrition_rate_pct": 0.0,
-                "median_end_to_end_journey_days": 0.0
+                "median_end_to_end_journey_days": None
             },
             "systemic_leak_points_detected": [],
             "district_vulnerability_ranking": [],
             "key_bottlenecks": {},
             "duckdb_olap_transitions": [],
+            "timestamp_anomalies_count": 0,
+            "anomalous_cases_count": 0,
             "is_k_anonymity_suppressed": True
         }
 
@@ -874,7 +992,7 @@ def compute_filtered_summary(
     attrition_rate = round(max(0.0, 100.0 - conviction_rate), 1)
 
     e2e_trans = bottleneck_data.get("FIR_REGISTERED -> COURT_VERDICT (E2E)", {})
-    median_journey = e2e_trans.get("median_days", 218.0)
+    median_journey = e2e_trans.get("median_days")
 
     ranking = sorted(
         [{"district": d, "score": v["vulnerability_score"], "status": v["status"]}
@@ -885,8 +1003,8 @@ def compute_filtered_summary(
 
     key_bottles = {
         k: {
-            "median_days": v["median_days"],
-            "p90_days": v["p90_days"],
+            "median_days": v.get("median_days"),
+            "p90_days": v.get("p90_days"),
             "compliance": v.get("statutory_compliance", {})
         }
         for k, v in bottleneck_data.items()
@@ -909,6 +1027,8 @@ def compute_filtered_summary(
         "district_vulnerability_ranking": ranking,
         "key_bottlenecks": key_bottles,
         "duckdb_olap_transitions": [],
+        "timestamp_anomalies_count": timestamp_anomalies_count,
+        "anomalous_cases_count": len(anomalous_case_ids),
         "is_k_anonymity_suppressed": False
     }
 

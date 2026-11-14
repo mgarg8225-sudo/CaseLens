@@ -568,8 +568,8 @@ def generate_dp_funnel(
         if isinstance(raw_count, str) or raw_count < k_threshold:
             noisy_count_val = f"<{k_threshold}"
             is_suppressed = True
-            retention_pct = 0.0
-            conversion_pct = 0.0
+            retention_pct = None
+            conversion_pct = None
         else:
             is_suppressed = False
             noise = float(rng.laplace(0.0, laplace.scale))
@@ -583,8 +583,8 @@ def generate_dp_funnel(
             else:
                 prev_noisy = dp_stages[i-1]["noisy_case_count"]
                 prev_val = prev_noisy if isinstance(prev_noisy, int) else raw_count
-                retention_pct = round((noisy_int / (base_noisy_count or 1)) * 100.0, 2)
-                conversion_pct = round((noisy_int / max(1, prev_val)) * 100.0, 2)
+                retention_pct = round(min(100.0, (noisy_int / (base_noisy_count or 1)) * 100.0), 2)
+                conversion_pct = round(min(100.0, (noisy_int / max(1, prev_val)) * 100.0), 2)
 
         dp_stages.append({
             "stage_id": stage["stage_id"],

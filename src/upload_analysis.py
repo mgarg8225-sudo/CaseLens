@@ -512,7 +512,8 @@ def harmonize_dataframes(dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "norm_locality": loc,
                 "incident_date": inc_date,
                 "record_date": rec_date,
-                "case_category": str(row.get("offense_category") or "general_violence")
+                "case_category": str(row.get("offense_category") or "general_violence"),
+                "legal_sections": str(row.get("legal_sections") or row.get("acts_sections") or row.get("sections") or row.get("act_section") or "").strip() or None
             })
 
     # 2. Hospital MLC
@@ -604,7 +605,8 @@ def harmonize_dataframes(dfs: Dict[str, pd.DataFrame]) -> pd.DataFrame:
                 "norm_locality": loc,
                 "incident_date": inc_date,
                 "record_date": rec_date,
-                "case_category": str(row.get("case_category") or "general_violence")
+                "case_category": str(row.get("case_category") or "general_violence"),
+                "legal_sections": str(row.get("legal_sections") or row.get("acts_sections") or row.get("sections") or row.get("act_section") or "").strip() or None
             })
 
     # 5. Court
@@ -797,11 +799,12 @@ def build_event_log_from_clusters(df_clustered: pd.DataFrame) -> pd.DataFrame:
             "agency": agency,
             "district": row.get("district", "Unknown"),
             "case_category": row.get("case_category", "general_violence"),
+            "legal_sections": row.get("legal_sections"),
             "stage_order": stage_order.get(activity, 99)
         })
 
     if not events:
-        return pd.DataFrame(columns=["case_id", "activity", "timestamp", "agency", "district", "case_category"])
+        return pd.DataFrame(columns=["case_id", "activity", "timestamp", "agency", "district", "case_category", "legal_sections"])
 
     df_events = pd.DataFrame(events)
     df_events["dt"] = pd.to_datetime(df_events["timestamp"], errors="coerce")
@@ -851,9 +854,10 @@ def compute_funnel_and_bottlenecks(
 
     for idx, stage in enumerate(CANONICAL_STAGES):
         c = int(df_cases[stage].sum()) if stage in df_cases else 0
-        conv = 100.0 if idx == 0 else (round((c / prev_c * 100.0), 1) if prev_c and prev_c > 0 else 0.0)
+        conv = 100.0 if idx == 0 else (round((min(c, prev_c) / prev_c * 100.0), 1) if prev_c and prev_c > 0 else 0.0)
         leak = 0.0 if idx == 0 else round(max(0.0, 100.0 - conv), 1)
-        ret = round((c / fir_count * 100.0), 1) if fir_count > 0 else 0.0
+        c_fir_ret = int((df_cases["FIR_REGISTERED"] & df_cases[stage]).sum()) if ("FIR_REGISTERED" in df_cases and stage in df_cases) else c
+        ret = round((min(c_fir_ret, fir_count) / fir_count * 100.0), 1) if fir_count > 0 else 0.0
 
         is_suppressed = (0 < c < k_threshold)
         if is_suppressed:
@@ -874,9 +878,12 @@ def compute_funnel_and_bottlenecks(
     # Calculate Transition Durations
     transitions_data = []
     timestamp_anomalies_count = 0
+    anomalous_case_ids: Set[str] = set()
     for case_id, grp in df_events.groupby("case_id"):
         acts = grp["activity"].tolist()
         dts = pd.to_datetime(grp["timestamp"], errors="coerce").tolist()
+        cat = grp["case_category"].iloc[0] if "case_category" in grp.columns else "general_violence"
+        sec = grp["legal_sections"].iloc[0] if "legal_sections" in grp.columns else None
 
         for i in range(len(acts) - 1):
             if pd.notna(dts[i]) and pd.notna(dts[i + 1]):
@@ -884,14 +891,56 @@ def compute_funnel_and_bottlenecks(
                 if delta < 0:
                     # Flag negative timestamp sequence anomaly, preserve original dates, exclude from statistics
                     timestamp_anomalies_count += 1
+                    anomalous_case_ids.add(str(case_id))
                     continue
                 transitions_data.append({
+                    "case_id": case_id,
                     "from_activity": acts[i],
                     "to_activity": acts[i + 1],
                     "pair": f"{acts[i]} -> {acts[i + 1]}",
                     "duration_days": delta,
                     "start_dt": dts[i],
-                    "end_dt": dts[i + 1]
+                    "end_dt": dts[i + 1],
+                    "category": cat,
+                    "legal_sections": sec
+                })
+
+        # End-to-end FIR -> Chargesheet and FIR -> Court
+        act_dict = { acts[i]: dts[i] for i in range(len(acts)) if pd.notna(dts[i]) }
+        if "FIR_REGISTERED" in act_dict and "CHARGESHEET_FILED" in act_dict:
+            delta_e2e = (act_dict["CHARGESHEET_FILED"] - act_dict["FIR_REGISTERED"]).days
+            if delta_e2e < 0:
+                timestamp_anomalies_count += 1
+                anomalous_case_ids.add(str(case_id))
+            else:
+                transitions_data.append({
+                    "case_id": case_id,
+                    "from_activity": "FIR_REGISTERED",
+                    "to_activity": "CHARGESHEET_FILED",
+                    "pair": "FIR_REGISTERED -> CHARGESHEET_FILED (E2E)",
+                    "duration_days": delta_e2e,
+                    "start_dt": act_dict["FIR_REGISTERED"],
+                    "end_dt": act_dict["CHARGESHEET_FILED"],
+                    "category": cat,
+                    "legal_sections": sec
+                })
+
+        if "FIR_REGISTERED" in act_dict and "COURT_VERDICT" in act_dict:
+            delta_court = (act_dict["COURT_VERDICT"] - act_dict["FIR_REGISTERED"]).days
+            if delta_court < 0:
+                timestamp_anomalies_count += 1
+                anomalous_case_ids.add(str(case_id))
+            else:
+                transitions_data.append({
+                    "case_id": case_id,
+                    "from_activity": "FIR_REGISTERED",
+                    "to_activity": "COURT_VERDICT",
+                    "pair": "FIR_REGISTERED -> COURT_VERDICT (E2E)",
+                    "duration_days": delta_court,
+                    "start_dt": act_dict["FIR_REGISTERED"],
+                    "end_dt": act_dict["COURT_VERDICT"],
+                    "category": cat,
+                    "legal_sections": sec
                 })
 
     df_trans = pd.DataFrame(transitions_data)
@@ -935,25 +984,52 @@ def compute_funnel_and_bottlenecks(
             # Statutory compliance rates
             statutory_compliance = {}
             if "MEDICAL_EXAM" in pair and "FIR" in pair:
+                compliant_count = 0
+                verified_count = 0
+                unverified_count = 0
+                for _, row_t in grp.iterrows():
+                    sec_str = row_t.get("legal_sections")
+                    cat_str = row_t.get("category")
+                    is_elig, _ = check_bnss_184_eligibility(sec_str, offense_category=cat_str)
+                    if not is_elig:
+                        unverified_count += 1
+                        continue
+                    verified_count += 1
+                    dur = row_t.get("duration_days", 0)
+                    if dur <= 1:
+                        compliant_count += 1
+                within_24h_pct = round(float(compliant_count) / max(1, verified_count) * 100.0, 1) if verified_count > 0 else None
                 statutory_compliance = {
-                    "within_24h_pct": round(float((vals <= 1).sum()) / max(1, n) * 100.0, 1)
+                    "within_24h_pct": within_24h_pct,
+                    "verified_eligible_cases": verified_count,
+                    "unverified_cases": unverified_count
                 }
             elif "CHARGESHEET" in pair:
                 # Two calendar months calculation using pd.DateOffset(months=2)
+                # Evaluated strictly for verified statutory eligible cases
                 compliant_count = 0
-                valid_count = 0
+                verified_count = 0
+                unverified_count = 0
                 for _, row_t in grp.iterrows():
+                    sec_str = row_t.get("legal_sections")
+                    cat_str = row_t.get("category")
+                    is_elig, _ = check_bnss_193_eligibility(sec_str, offense_category=cat_str)
+                    if not is_elig:
+                        unverified_count += 1
+                        continue
                     s_dt = row_t.get("start_dt")
                     e_dt = row_t.get("end_dt")
                     if pd.notna(s_dt) and pd.notna(e_dt):
-                        valid_count += 1
+                        verified_count += 1
                         deadline = compute_calendar_month_deadline(s_dt, months=2)
                         if deadline is not None and e_dt <= deadline:
                             compliant_count += 1
-                within_2m_pct = round(float(compliant_count) / max(1, valid_count) * 100.0, 1)
+                within_2m_pct = round(float(compliant_count) / max(1, verified_count) * 100.0, 1) if verified_count > 0 else None
                 statutory_compliance = {
                     "within_two_calendar_months_pct": within_2m_pct,
-                    "within_60_days_pct": round(float((vals <= 60).sum()) / max(1, n) * 100.0, 1)
+                    "within_60_days_pct": round(float((vals <= 60).sum()) / max(1, n) * 100.0, 1),
+                    "verified_eligible_cases": verified_count,
+                    "unverified_cases": unverified_count
                 }
             elif "FORENSIC" in pair and "MEDICAL" in pair:
                 statutory_compliance = {
@@ -1101,15 +1177,17 @@ def compute_funnel_and_bottlenecks(
                 if span >= 0:
                     durations.append(span)
 
-    med_journey = round(float(np.median(durations)), 1) if durations else 0.0
-    avg_journey = round(float(np.mean(durations)), 1) if durations else 0.0
+    med_journey = round(float(np.median(durations)), 1) if durations else None
+    avg_journey = round(float(np.mean(durations)), 1) if durations else None
 
     journey_metrics = {
         "total_cases": total_entities,
         "total_events": len(df_events),
         "median_journey_duration_days": med_journey,
         "avg_journey_duration_days": avg_journey,
-        "cases_with_multi_events": len(durations)
+        "cases_with_multi_events": len(durations),
+        "process_mining_engine": "Native Pandas Directly Follows Graph (DFG)",
+        "engine_description": "Native in-memory Directly Follows Graph (DFG) computes exact empirical transition percentiles (P25, median, P75, P90, P95) and process variants via Pandas without requiring external C/GLPK solvers."
     }
 
     # Generate Dynamic Leak Points Detected
@@ -1139,7 +1217,8 @@ def compute_funnel_and_bottlenecks(
         "journey_metrics": journey_metrics,
         "systemic_leak_points": systemic_leak_points,
         "k_suppressed_groups": k_suppressed,
-        "timestamp_anomalies_count": timestamp_anomalies_count
+        "timestamp_anomalies_count": timestamp_anomalies_count,
+        "anomalous_cases_count": len(anomalous_case_ids)
     }
 
 
@@ -1168,8 +1247,10 @@ def analyze_uploaded_datasets(
             "privacy_info": {"masked_fields": ["survivor_name", "relative_name"], "suppressed_groups": []},
             "district_leakage": [],
             "district_ranking": [],
-            "journey_metrics": {"total_cases": 0, "total_events": 0, "median_journey_duration_days": 0.0, "avg_journey_duration_days": 0.0},
-            "systemic_leak_points": []
+            "journey_metrics": {"total_cases": 0, "total_events": 0, "median_journey_duration_days": None, "avg_journey_duration_days": None, "process_mining_engine": "Native Pandas Directly Follows Graph (DFG)"},
+            "systemic_leak_points": [],
+            "timestamp_anomalies_count": 0,
+            "anomalous_cases_count": 0
         }
 
     # 2. Pairwise Linkage & Clustering
@@ -1346,8 +1427,9 @@ def filter_uploaded_analysis(
                 "journey_metrics": {
                     "total_cases": 0,
                     "total_events": 0,
-                    "median_journey_duration_days": 0.0,
-                    "avg_journey_duration_days": 0.0
+                    "median_journey_duration_days": None,
+                    "avg_journey_duration_days": None,
+                    "process_mining_engine": "Native Pandas Directly Follows Graph (DFG)"
                 },
                 "systemic_leak_points": [],
                 "events": events_list
@@ -1657,11 +1739,14 @@ def build_dashboard_bundle_from_analysis(
     privacy_info = analysis_result.get("privacy_info", {})
     district_leakage = analysis_result.get("district_leakage", [])
     district_ranking = analysis_result.get("district_ranking", [])
-    journey_metrics = analysis_result.get("journey_metrics") or {
-        "total_cases": kpis.get("total_cases", 0),
-        "total_events": kpis.get("total_events") or (kpis.get("total_cases", 0) * 2),
-        "median_journey_duration_days": 45.0,
-        "avg_journey_duration_days": 52.0
+    jm = analysis_result.get("journey_metrics") or {}
+    journey_metrics = {
+        "total_cases": jm.get("total_cases") or kpis.get("total_cases", 0),
+        "total_events": jm.get("total_events") or kpis.get("total_events", 0),
+        "median_journey_duration_days": jm.get("median_journey_duration_days"),
+        "avg_journey_duration_days": jm.get("avg_journey_duration_days"),
+        "process_mining_engine": jm.get("process_mining_engine", "Native Pandas Directly Follows Graph (DFG)"),
+        "engine_description": jm.get("engine_description", "Native in-memory Directly Follows Graph (DFG) computes exact empirical transition percentiles (P25, median, P75, P90, P95) and process variants via Pandas without requiring external C/GLPK solvers.")
     }
     leaks = analysis_result.get("systemic_leak_points", [])
 
@@ -1681,11 +1766,14 @@ def build_dashboard_bundle_from_analysis(
             "cases_initiating_fir": fir_cases,
             "cases_reaching_verdict": verdict_cases,
             "overall_conviction_reach_rate_pct": kpis.get("verdict_rate_pct", 0.0),
-            "fir_rate_pct": kpis.get("fir_rate_pct", 0.0)
+            "fir_rate_pct": kpis.get("fir_rate_pct", 0.0),
+            "median_end_to_end_journey_days": jm.get("median_journey_duration_days")
         },
         "systemic_leak_points_detected": leaks,
         "district_vulnerability_ranking": district_ranking,
-        "one_line_insight": kpis.get("one_line_insight", "")
+        "one_line_insight": kpis.get("one_line_insight", ""),
+        "timestamp_anomalies_count": analysis_result.get("timestamp_anomalies_count", 0),
+        "anomalous_cases_count": analysis_result.get("anomalous_cases_count", 0)
     }
 
     # 2. Funnel & DP Funnel
@@ -1726,15 +1814,26 @@ def build_dashboard_bundle_from_analysis(
     if not bottlenecks:
         bottlenecks = {}
     bottlenecks["too_few_cases"] = analysis_result.get("too_few_cases", total_cases < k_threshold)
+    bottlenecks["timestamp_anomalies_count"] = analysis_result.get("timestamp_anomalies_count", 0)
+    bottlenecks["anomalous_cases_count"] = analysis_result.get("anomalous_cases_count", 0)
+    bottlenecks["process_mining_engine"] = "Native Pandas Directly Follows Graph (DFG)"
 
     # Build inter_stage_transitions list for Executive Overview & Bottlenecks view
     inter_stage_transitions = []
     for pair, t_data in bottlenecks.items():
         if isinstance(t_data, dict) and "->" in str(pair):
-            med_d = t_data.get("median_days") or t_data.get("median_duration_days", 0.0)
-            mean_d = t_data.get("mean_days") or t_data.get("mean_duration_days", med_d)
-            p90_d = t_data.get("p90_days") or t_data.get("p90_duration_days", med_d)
-            p95_d = t_data.get("p95_days") or t_data.get("p95_duration_days", p90_d)
+            med_d = t_data.get("median_days")
+            if med_d is None:
+                med_d = t_data.get("median_duration_days")
+            mean_d = t_data.get("mean_days")
+            if mean_d is None:
+                mean_d = t_data.get("mean_duration_days")
+            p90_d = t_data.get("p90_days")
+            if p90_d is None:
+                p90_d = t_data.get("p90_duration_days")
+            p95_d = t_data.get("p95_days")
+            if p95_d is None:
+                p95_d = t_data.get("p95_duration_days")
             benchmark_d = t_data.get("statutory_benchmark_days")
             if not benchmark_d:
                 if "MEDICAL" in pair:
@@ -1748,7 +1847,7 @@ def build_dashboard_bundle_from_analysis(
                 else:
                     benchmark_d = 30.0
 
-            stat_ratio = round(med_d / benchmark_d, 2) if benchmark_d > 0 else 1.0
+            stat_ratio = round(med_d / benchmark_d, 2) if (med_d is not None and benchmark_d > 0) else None
             parts = [p.strip() for p in pair.split("->")]
             is_self = len(parts) == 2 and parts[0] == parts[1]
             is_e2e = "(E2E)" in pair or "E2E" in pair
