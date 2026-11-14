@@ -716,6 +716,32 @@ def _num(value: Any) -> Optional[float]:
     return None
 
 
+def _clean_counter(val: Any) -> int:
+    """
+    Sanitizes counter values defensively:
+    - Preserves valid zero and positive numbers.
+    - Rejects None, NaN, positive/negative infinity, negative numbers, and booleans.
+    - Explicitly excludes bool and np.bool_ (since bool subclasses int).
+    - Supports Python and NumPy integer and floating-point types.
+    - Supports very large Python integers without overflow.
+    - Uses math.isfinite() to validate floating-point finiteness.
+    - Converts valid non-negative numeric values to integers.
+    - Defaults invalid values to 0.
+    """
+    if val is None or isinstance(val, (bool, np.bool_)):
+        return 0
+    if isinstance(val, (int, np.integer)):
+        return int(val) if val >= 0 else 0
+    if isinstance(val, (float, np.floating)):
+        try:
+            f_val = float(val)
+            if math.isfinite(f_val) and f_val >= 0:
+                return int(f_val)
+        except (ValueError, TypeError, OverflowError):
+            return 0
+    return 0
+
+
 def fmt_int(value: Any) -> str:
     if isinstance(value, str) and ("<" in value or value == "Suppressed"):
         return value
@@ -2869,8 +2895,15 @@ elif PAGE in ["⏱️ Duration & Bottlenecks", "⏱️ Duration Bottlenecks & La
         render_too_few_cases_warning()
         st.stop()
 
-    anom_cnt = bottlenecks.get("timestamp_anomalies_count", 0) or summary_data.get("timestamp_anomalies_count", 0) or 0
-    anom_cases_cnt = bottlenecks.get("anomalous_cases_count", 0) or summary_data.get("anomalous_cases_count", 0) or 0
+    raw_anom_cnt = bottlenecks.get("timestamp_anomalies_count")
+    if raw_anom_cnt is None and isinstance(DATA.get("summary"), dict):
+        raw_anom_cnt = DATA.get("summary", {}).get("timestamp_anomalies_count")
+    anom_cnt = _clean_counter(raw_anom_cnt)
+
+    raw_anom_cases = bottlenecks.get("anomalous_cases_count")
+    if raw_anom_cases is None and isinstance(DATA.get("summary"), dict):
+        raw_anom_cases = DATA.get("summary", {}).get("anomalous_cases_count")
+    anom_cases_cnt = _clean_counter(raw_anom_cases)
     engine_name = bottlenecks.get("process_mining_engine", "Native Pandas Directly Follows Graph (DFG)")
 
     # Process Discovery Engine Attribution & Distinction

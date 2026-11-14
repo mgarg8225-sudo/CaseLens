@@ -26,7 +26,7 @@ from src.analytics import (
 )
 from src.privacy import LaplaceMechanism, generate_dp_funnel
 from src.journey import compute_directly_follows_graph, discover_process_variants
-from app.dashboard import compute_dashboard_kpis, NA
+from app.dashboard import compute_dashboard_kpis, NA, _clean_counter
 
 
 # ==============================================================================
@@ -536,3 +536,116 @@ def test_zero_denominator_validity_label_logic():
     assert compute_label(0, 0, float("nan")) == "N/A (No Evaluated Transitions)"
     assert compute_label(0, 0, -5) == "N/A (No Evaluated Transitions)"
     assert compute_label(0, 0, "invalid") == "N/A (No Evaluated Transitions)"
+
+
+# ==============================================================================
+# 12. Defensive Anomaly Counter Sanitization & Fallback
+# ==============================================================================
+
+def test_anomaly_counter_defensive_sanitization_and_fallback():
+    """
+    Validates defensive anomaly counter sanitization:
+    1. Preserves valid zero values across Python and NumPy integer/float types.
+    2. Rejects None, NaN, positive/negative infinity, negative numbers, and booleans (including np.bool_).
+    3. Converts valid non-negative numeric values to integers.
+    4. Defaults invalid values to 0.
+    5. Preserves legitimate zero values without erroneously triggering summary fallback.
+    6. Falls back to summary when bottlenecks counter is explicitly None.
+    """
+    # 1. Valid zero preservation
+    assert _clean_counter(0) == 0
+    assert _clean_counter(0.0) == 0
+    assert _clean_counter(np.int64(0)) == 0
+    assert _clean_counter(np.float64(0.0)) == 0
+    assert _clean_counter(np.int32(0)) == 0
+    assert _clean_counter(np.float32(0.0)) == 0
+
+    # 2. Valid positive numeric conversion to integer
+    assert _clean_counter(5) == 5
+    assert _clean_counter(5.0) == 5
+    assert _clean_counter(5.9) == 5
+    assert _clean_counter(np.int64(12)) == 12
+    assert _clean_counter(np.float64(7.0)) == 7
+    assert _clean_counter(np.int32(3)) == 3
+    assert _clean_counter(np.float32(2.5)) == 2
+
+    # 3. None and non-numeric rejection -> 0
+    assert _clean_counter(None) == 0
+    assert _clean_counter("10") == 0
+    assert _clean_counter([1]) == 0
+    assert _clean_counter({"count": 1}) == 0
+
+    # 4. NaN and +/- infinity rejection -> 0
+    assert _clean_counter(float("nan")) == 0
+    assert _clean_counter(np.nan) == 0
+    assert _clean_counter(float("inf")) == 0
+    assert _clean_counter(float("-inf")) == 0
+    assert _clean_counter(np.inf) == 0
+    assert _clean_counter(-np.inf) == 0
+
+    # 5. Negative number rejection -> 0
+    assert _clean_counter(-1) == 0
+    assert _clean_counter(-0.1) == 0
+    assert _clean_counter(-100) == 0
+    assert _clean_counter(np.int64(-5)) == 0
+    assert _clean_counter(np.float64(-3.5)) == 0
+
+    # 6. Boolean rejection -> 0 (explicitly excluding bool and np.bool_)
+    assert _clean_counter(True) == 0
+    assert _clean_counter(False) == 0
+    assert _clean_counter(np.bool_(True)) == 0
+    assert _clean_counter(np.bool_(False)) == 0
+
+    # 7. Very large Python integers without overflow
+    assert _clean_counter(10**18) == 10**18
+    assert _clean_counter(10**100) == 10**100
+    assert _clean_counter(10**400) == 10**400
+
+    # 8. Fallback logic simulation
+    def retrieve_counters(bottlenecks, DATA):
+        raw_cnt = bottlenecks.get("timestamp_anomalies_count")
+        if raw_cnt is None and isinstance(DATA.get("summary"), dict):
+            raw_cnt = DATA.get("summary", {}).get("timestamp_anomalies_count")
+        anom_cnt = _clean_counter(raw_cnt)
+
+        raw_cases = bottlenecks.get("anomalous_cases_count")
+        if raw_cases is None and isinstance(DATA.get("summary"), dict):
+            raw_cases = DATA.get("summary", {}).get("anomalous_cases_count")
+        anom_cases = _clean_counter(raw_cases)
+        return anom_cnt, anom_cases
+
+    # Scenario A: bottlenecks contains 0 -> 0 is preserved, summary (with 99) is NOT used
+    data_with_summary = {"summary": {"timestamp_anomalies_count": 99, "anomalous_cases_count": 88}}
+    assert retrieve_counters({"timestamp_anomalies_count": 0, "anomalous_cases_count": 0}, data_with_summary) == (0, 0)
+
+    # Scenario B: bottlenecks key is None -> falls back to summary
+    assert retrieve_counters({"timestamp_anomalies_count": None, "anomalous_cases_count": None}, data_with_summary) == (99, 88)
+
+    # Scenario C: bottlenecks key is missing -> falls back to summary
+    assert retrieve_counters({}, data_with_summary) == (99, 88)
+
+    # Scenario D: bottlenecks has invalid value (e.g. NaN, negative, boolean) -> sanitized to 0
+    assert retrieve_counters({"timestamp_anomalies_count": float("nan"), "anomalous_cases_count": -5}, data_with_summary) == (0, 0)
+    assert retrieve_counters({"timestamp_anomalies_count": True, "anomalous_cases_count": False}, data_with_summary) == (0, 0)
+
+    # 9. Verify NameError is eliminated when summary_data is undefined in local scope
+    local_scope_without_summary_data = {
+        "bottlenecks": {"timestamp_anomalies_count": 0, "anomalous_cases_count": 0},
+        "DATA": {"bottlenecks": {"timestamp_anomalies_count": 0, "anomalous_cases_count": 0}}
+    }
+    # Executing the exact logic from app/dashboard.py in an isolated environment without summary_data
+    exec_code = """
+raw_anom_cnt = bottlenecks.get("timestamp_anomalies_count")
+if raw_anom_cnt is None and isinstance(DATA.get("summary"), dict):
+    raw_anom_cnt = DATA.get("summary", {}).get("timestamp_anomalies_count")
+anom_cnt = _clean_counter(raw_anom_cnt)
+
+raw_anom_cases = bottlenecks.get("anomalous_cases_count")
+if raw_anom_cases is None and isinstance(DATA.get("summary"), dict):
+    raw_anom_cases = DATA.get("summary", {}).get("anomalous_cases_count")
+anom_cases_cnt = _clean_counter(raw_anom_cases)
+"""
+    exec_globals = {"_clean_counter": _clean_counter, "isinstance": isinstance, "dict": dict}
+    exec(exec_code, exec_globals, local_scope_without_summary_data)
+    assert local_scope_without_summary_data["anom_cnt"] == 0
+    assert local_scope_without_summary_data["anom_cases_cnt"] == 0
