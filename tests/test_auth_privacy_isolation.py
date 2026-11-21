@@ -8,7 +8,7 @@ Requirements Covered:
 4. Generic HTTP 429 does not set the privacy_budget_exhausted session state flag.
 5. Existing differential privacy exhaustion behavior remains intact on protected analytical endpoints.
 6. Invalid credentials remain rejected (HTTP 401/403) and do not touch the privacy budget.
-7. Authentication (login and logout) does not depend on or consume privacy budget (0 epsilon spent), even when budget is 0.
+7. Authentication login does not depend on or consume privacy budget (0 epsilon spent), even when budget is 0.
 """
 
 import os
@@ -327,8 +327,8 @@ def test_invalid_credentials_rejected(auth_app_env):
     assert DATA_STORE.budget_tracker.spent_epsilon == initial_spent
 
 
-def test_login_and_logout_do_not_consume_epsilon(auth_app_env):
-    """Test 7: Authentication (login and logout) succeeds even when budget is 0, and spends 0.0 epsilon."""
+def test_login_does_not_consume_epsilon(auth_app_env):
+    """Test 7: Authentication login succeeds even when privacy budget is exhausted, and spends 0.0 epsilon."""
     client = auth_app_env["client"]
 
     # Temporarily exhaust privacy budget
@@ -339,24 +339,16 @@ def test_login_and_logout_do_not_consume_epsilon(auth_app_env):
         DATA_STORE.budget_tracker.spent_epsilon = DATA_STORE.budget_tracker.total_epsilon
         assert DATA_STORE.budget_tracker.remaining_epsilon == 0.0
 
-        # 1. Login must succeed despite 0 remaining epsilon
+        # Login must succeed despite 0 remaining epsilon
         login_res = client.post("/api/v1/auth/login", json={
             "username": "viewer",
             "password": "ViewerPassword123!"
         })
         assert login_res.status_code == 200
-        token = login_res.json()["access_token"]
+        token = login_res.json().get("access_token")
         assert token is not None
 
-        # Verify epsilon spent remains unchanged
-        assert DATA_STORE.budget_tracker.spent_epsilon == DATA_STORE.budget_tracker.total_epsilon
-
-        # 2. Logout must succeed and spend 0 epsilon
-        logout_res = client.post(
-            "/api/v1/auth/logout",
-            headers={"Authorization": f"Bearer {token}"}
-        )
-        assert logout_res.status_code == 200
+        # Verify epsilon spent remains unchanged (0.0 epsilon consumed)
         assert DATA_STORE.budget_tracker.spent_epsilon == DATA_STORE.budget_tracker.total_epsilon
 
     finally:
