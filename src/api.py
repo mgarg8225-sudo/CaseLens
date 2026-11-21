@@ -51,6 +51,7 @@ from src.upload_analysis import (
     LINKAGE_METHOD_NAME,
     DEFAULT_BASELINE_BOTTLENECKS,
 )
+from src.utils import clean_nan, SafeJSONResponse
 
 from src.privacy import (
     PrivacyBudgetTracker,
@@ -825,7 +826,7 @@ def sanitize_and_verify_payload(
             detail=f"Privacy violation: Forbidden PII keys detected in response payload: {pii_check['leaked_fields']}"
         )
 
-    return payload
+    return clean_nan(payload)
 
 
 # ==============================================================================
@@ -888,6 +889,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         version="1.0.0",
         docs_url="/docs",
         redoc_url="/redoc",
+        default_response_class=SafeJSONResponse,
         lifespan=lifespan
     )
 

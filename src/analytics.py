@@ -26,7 +26,7 @@ across institutional stages (Police FIR -> Hospital MLC -> Forensic Lab -> Prose
 
 import os
 import json
-from typing import Dict, List, Tuple, Any, Optional
+from typing import Dict, List, Tuple, Any, Optional, Set
 import pandas as pd
 import numpy as np
 try:
@@ -212,9 +212,12 @@ def compute_district_leakage_diagnostics(
     df_delays = pd.DataFrame(case_delays)
 
     # State Benchmark Medians/Averages across all districts
-    state_fir_to_pros_rate = (df_cases["has_pros"].sum() / df_cases["has_fir"].sum() * 100.0)
-    state_fsl_median = float(df_delays["fsl_delay_days"].dropna().median())
-    state_trial_median = float(df_delays["trial_delay_days"].dropna().median())
+    fir_sum = int(df_cases["has_fir"].sum()) if "has_fir" in df_cases else 0
+    state_fir_to_pros_rate = (df_cases["has_pros"].sum() / fir_sum * 100.0) if fir_sum > 0 else 0.0
+    fsl_series = df_delays["fsl_delay_days"].dropna()
+    trial_series = df_delays["trial_delay_days"].dropna()
+    state_fsl_median = float(fsl_series.median()) if len(fsl_series) > 0 else 0.0
+    state_trial_median = float(trial_series.median()) if len(trial_series) > 0 else 0.0
 
     district_diagnostics = {}
     leak_point_alerts = []
@@ -413,9 +416,9 @@ def compute_category_analytics(df_events: pd.DataFrame) -> Dict[str, Any]:
         pros_to_court = round((court_n / pros_n * 100.0), 1) if pros_n > 0 else 0.0
         end_to_end = round((court_n / fir_n * 100.0), 1) if fir_n > 0 else 0.0
 
-        durations = grp["duration_days"]
-        avg_dur = round(float(durations.mean()), 1)
-        median_dur = round(float(durations.median()), 1)
+        dur_valid = grp["duration_days"].dropna()
+        avg_dur = round(float(dur_valid.mean()), 1) if len(dur_valid) > 0 else None
+        median_dur = round(float(dur_valid.median()), 1) if len(dur_valid) > 0 else None
 
         category_summary[cat] = {
             "total_cases": total_c,
@@ -658,6 +661,43 @@ def compute_transition_bottlenecks(df_events: pd.DataFrame) -> Dict[str, Any]:
         }
 
     return transition_metrics
+
+
+def count_timestamp_anomalies(df_events: pd.DataFrame) -> Tuple[int, int]:
+    """Counts total invalid negative transitions and unique affected cases."""
+    if df_events is None or df_events.empty or "case_id" not in df_events.columns or "timestamp" not in df_events.columns:
+        return 0, 0
+    stage_order = {
+        "FIR_REGISTERED": 1,
+        "MEDICAL_EXAM": 2,
+        "FORENSIC_REPORT": 3,
+        "CHARGESHEET_FILED": 4,
+        "COURT_VERDICT": 5
+    }
+    anom_count = 0
+    anom_cases: Set[str] = set()
+    for case_id, grp in df_events.groupby("case_id"):
+        grp_work = grp.copy()
+        grp_work["_dt"] = pd.to_datetime(grp_work["timestamp"], errors="coerce")
+        grp_work["_so"] = grp_work["activity"].map(lambda a: stage_order.get(a, 99))
+        grp_sorted = grp_work.sort_values(by=["_dt", "_so"]).reset_index(drop=True)
+        dts = grp_sorted["_dt"].tolist()
+        acts = grp_sorted["activity"].tolist()
+        for i in range(len(acts) - 1):
+            if pd.notna(dts[i]) and pd.notna(dts[i + 1]):
+                if (dts[i + 1] - dts[i]).days < 0:
+                    anom_count += 1
+                    anom_cases.add(str(case_id))
+        act_dict = { acts[i]: dts[i] for i in range(len(acts)) if pd.notna(dts[i]) }
+        if "FIR_REGISTERED" in act_dict and "CHARGESHEET_FILED" in act_dict:
+            if (act_dict["CHARGESHEET_FILED"] - act_dict["FIR_REGISTERED"]).days < 0:
+                anom_count += 1
+                anom_cases.add(str(case_id))
+        if "FIR_REGISTERED" in act_dict and "COURT_VERDICT" in act_dict:
+            if (act_dict["COURT_VERDICT"] - act_dict["FIR_REGISTERED"]).days < 0:
+                anom_count += 1
+                anom_cases.add(str(case_id))
+    return anom_count, len(anom_cases)
 
 
 def run_duckdb_analytics(data_dir: str = "data") -> Dict[str, Any]:
@@ -1011,6 +1051,8 @@ def compute_filtered_summary(
         if "E2E" in k or "COURT" in k or "FORENSIC" in k
     }
 
+    anom_cnt, anom_cases = count_timestamp_anomalies(df_filtered)
+
     summary = {
         "too_few_cases": False,
         "pipeline_health": {
@@ -1027,8 +1069,8 @@ def compute_filtered_summary(
         "district_vulnerability_ranking": ranking,
         "key_bottlenecks": key_bottles,
         "duckdb_olap_transitions": [],
-        "timestamp_anomalies_count": timestamp_anomalies_count,
-        "anomalous_cases_count": len(anomalous_case_ids),
+        "timestamp_anomalies_count": anom_cnt,
+        "anomalous_cases_count": anom_cases,
         "is_k_anonymity_suppressed": False
     }
 

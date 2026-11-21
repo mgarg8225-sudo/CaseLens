@@ -23,6 +23,7 @@ import json
 from typing import Dict, List, Tuple, Any, Optional
 import pandas as pd
 import numpy as np
+from src.utils import clean_nan
 try:
     import pm4py
     _HAS_PM4PY = True
@@ -164,14 +165,18 @@ def discover_process_variants(df_events: pd.DataFrame) -> Tuple[pd.DataFrame, Di
     start_dist = (df_traces["start_activity"].value_counts(normalize=True) * 100).round(2).to_dict()
     end_dist = (df_traces["end_activity"].value_counts(normalize=True) * 100).round(2).to_dict()
 
+    valid_durs = df_traces["duration_days"].dropna() if "duration_days" in df_traces else pd.Series(dtype=float)
+    avg_case_dur = round(float(valid_durs.mean()), 1) if len(valid_durs) > 0 else None
+    med_case_dur = round(float(valid_durs.median()), 1) if len(valid_durs) > 0 else None
+
     metrics = {
         "total_cases_reconstructed": total_cases,
         "unique_journey_variants": len(variant_summary),
         "start_activities_pct": start_dist,
         "exit_points_pct": end_dist,
-        "avg_case_duration_days": round(df_traces["duration_days"].mean(), 1),
-        "median_case_duration_days": round(df_traces["duration_days"].median(), 1),
-        "top_variants": variant_summary.head(10).to_dict(orient="records")
+        "avg_case_duration_days": avg_case_dur,
+        "median_case_duration_days": med_case_dur,
+        "top_variants": clean_nan(variant_summary.head(10).to_dict(orient="records"))
     }
 
     return variant_summary, metrics

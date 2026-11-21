@@ -32,6 +32,7 @@ from src.case_simulator import score_case_pair
 from src.case_explorer import mask_name
 from src.linkage import normalize_name, normalize_locality, cluster_connected_components
 from src.analytics import filter_event_log, normalize_stage_name
+from src.utils import clean_nan
 
 # True name of the linkage method used for uploaded & entered data
 LINKAGE_METHOD_NAME = "Fellegi-Sunter Pairwise Scoring (case_simulator)"
@@ -792,14 +793,15 @@ def build_event_log_from_clusters(df_clustered: pd.DataFrame) -> pd.DataFrame:
         if not pd.notna(dt_str) or not str(dt_str).strip():
             continue
 
+        sec_val = row.get("legal_sections")
         events.append({
             "case_id": row["entity_id"],
             "activity": activity,
             "timestamp": str(dt_str).strip(),
             "agency": agency,
-            "district": row.get("district", "Unknown"),
-            "case_category": row.get("case_category", "general_violence"),
-            "legal_sections": row.get("legal_sections"),
+            "district": row.get("district", "Unknown") if pd.notna(row.get("district")) else "Unknown",
+            "case_category": row.get("case_category", "general_violence") if pd.notna(row.get("case_category")) else "general_violence",
+            "legal_sections": sec_val if pd.notna(sec_val) else None,
             "stage_order": stage_order.get(activity, 99)
         })
 
@@ -1275,7 +1277,7 @@ def analyze_uploaded_datasets(
     else:
         insight = f"Analyzed {total_entities} cases across {linkage_stats['total_records']} institutional records with {verd_rate}% reaching verdict."
 
-    return {
+    return clean_nan({
         "status": "success",
         "summary_kpis": {
             "total_cases": total_entities,
@@ -1303,8 +1305,8 @@ def analyze_uploaded_datasets(
         "district_ranking": analytics.get("district_ranking", []),
         "journey_metrics": analytics.get("journey_metrics", {}),
         "systemic_leak_points": analytics.get("systemic_leak_points", []),
-        "events": df_events.to_dict(orient="records")
-    }
+        "events": clean_nan(df_events.to_dict(orient="records"))
+    })
 
 
 def filter_uploaded_analysis(
@@ -1397,7 +1399,7 @@ def filter_uploaded_analysis(
         baselines = baseline_bottlenecks or analysis_result.get("bottlenecks", {}).get("transitions") or DEFAULT_BASELINE_BOTTLENECKS
 
         if total_filtered_cases == 0:
-            return {
+            return clean_nan({
                 "status": "success",
                 "too_few_cases": True,
                 "summary_kpis": {
@@ -1432,8 +1434,8 @@ def filter_uploaded_analysis(
                     "process_mining_engine": "Native Pandas Directly Follows Graph (DFG)"
                 },
                 "systemic_leak_points": [],
-                "events": events_list
-            }
+                "events": clean_nan(events_list)
+            })
 
         analytics = compute_funnel_and_bottlenecks(df_filtered, total_filtered_cases, baselines, k_threshold=k_threshold)
         too_few = (total_filtered_cases < k_threshold)
@@ -1449,7 +1451,7 @@ def filter_uploaded_analysis(
         else:
             insight = f"Analyzed {total_filtered_cases} cases matching filters with {verd_rate}% reaching verdict."
 
-        return {
+        return clean_nan({
             "status": "success",
             "too_few_cases": too_few,
             "summary_kpis": {
@@ -1473,8 +1475,8 @@ def filter_uploaded_analysis(
             "district_ranking": analytics.get("district_ranking", []),
             "journey_metrics": analytics.get("journey_metrics", {}),
             "systemic_leak_points": analytics.get("systemic_leak_points", []),
-            "events": events_list
-        }
+            "events": clean_nan(events_list)
+        })
 
     # 3. Fallback for mock analysis dictionaries without events
     if is_all_district and is_all_stage and is_all_from and is_all_to:
