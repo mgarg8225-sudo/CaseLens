@@ -258,10 +258,16 @@ def _handle_response_status(resp: requests.Response) -> bool:
         return True
 
     detail = "An unknown error occurred."
+    err_json = None
     try:
         err_json = resp.json()
-        if isinstance(err_json, dict) and "detail" in err_json:
-            detail = err_json["detail"]
+        if isinstance(err_json, dict):
+            if "detail" in err_json:
+                detail = err_json["detail"]
+            elif "message" in err_json:
+                detail = err_json["message"]
+            elif "error" in err_json:
+                detail = err_json["error"]
     except Exception:
         detail = resp.text or resp.reason
 
@@ -282,16 +288,40 @@ def _handle_response_status(resp: requests.Response) -> bool:
             f"⛔ **Access Denied**: {detail}"
         )
     elif resp.status_code == 429:
-        _show_ui_message(
-            "warning",
-            f"🛡️ **Privacy Budget Limit Reached**: {detail}"
+        resp_url = getattr(resp, "url", None) or ""
+        if not resp_url and hasattr(resp, "request") and getattr(resp.request, "url", None):
+            resp_url = resp.request.url or ""
+
+        # Authentication endpoints are strictly rate limits, never differential privacy budget
+        is_auth_endpoint = any(p in resp_url.lower() for p in ("/api/v1/auth/", "/auth/"))
+
+        # Inspect response detail and JSON payload for differential privacy keywords
+        detail_lower = str(detail).lower()
+        json_str_lower = json.dumps(err_json).lower() if isinstance(err_json, dict) else ""
+        has_dp_indicator = (
+            "privacy budget" in detail_lower
+            or "epsilon" in detail_lower
+            or "privacy_budget" in json_str_lower
         )
-        if _HAS_STREAMLIT and st is not None:
-            try:
-                st.session_state["privacy_budget_exhausted"] = True
-                st.session_state["budget_exhausted_detail"] = detail
-            except Exception:
-                pass
+
+        is_dp_budget = (not is_auth_endpoint) and has_dp_indicator
+
+        if is_dp_budget:
+            _show_ui_message(
+                "warning",
+                f"🛡️ **Privacy Budget Limit Reached**: {detail}"
+            )
+            if _HAS_STREAMLIT and st is not None:
+                try:
+                    st.session_state["privacy_budget_exhausted"] = True
+                    st.session_state["budget_exhausted_detail"] = detail
+                except Exception:
+                    pass
+        else:
+            _show_ui_message(
+                "warning",
+                f"⏱️ **Rate Limit Exceeded**: {detail}"
+            )
     else:
         if _HAS_STREAMLIT and st is not None:
             st.error(f"⚠️ **Backend Response Issue ({resp.status_code})**: The server encountered an issue.")
