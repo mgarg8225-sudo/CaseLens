@@ -354,3 +354,548 @@ def test_login_does_not_consume_epsilon(auth_app_env):
     finally:
         DATA_STORE.budget_tracker.spent_epsilon = orig_spent
         DATA_STORE.budget_tracker.total_epsilon = orig_total
+
+
+# ==============================================================================
+# 8. Audit Log Endpoint Security & Anti-Spoofing Tests (Phase 2)
+# ==============================================================================
+
+def test_audit_log_endpoint_unauthenticated_rejected(auth_app_env):
+    """
+    Test 8a: Unauthenticated audit log submission must be rejected with HTTP 401.
+    Verifies that authentication failures create ZERO audit records in the ledger.
+    """
+    client = auth_app_env["client"]
+
+    initial_probe_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "UNAUTHENTICATED_PROBE_ATTEMPT"
+    ])
+
+    # 1. Missing Authorization header
+    res_no_auth = client.post("/api/v1/audit/log", json={
+        "event_type": "UNAUTHENTICATED_PROBE_ATTEMPT",
+        "page": "📊 Executive Overview",
+        "user_id": "attacker",
+        "role": "admin"
+    })
+    assert res_no_auth.status_code == 401
+
+    # 2. Invalid / forged Bearer token
+    res_invalid_jwt = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "UNAUTHENTICATED_PROBE_ATTEMPT", "page": "Dashboard"},
+        headers={"Authorization": "Bearer forged.invalid.token"}
+    )
+    assert res_invalid_jwt.status_code == 401
+
+    # 3. Invalid API key
+    res_invalid_key = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "UNAUTHENTICATED_PROBE_ATTEMPT", "page": "Dashboard"},
+        headers={"X-API-Key": "invalid-random-key-9999"}
+    )
+    assert res_invalid_key.status_code == 401
+
+    # 4. Critical requirement: Authentication failures must create ZERO audit entries from the endpoint
+    final_probe_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "UNAUTHENTICATED_PROBE_ATTEMPT"
+    ])
+    assert final_probe_events == initial_probe_events == 0
+
+
+def test_audit_log_endpoint_anti_spoofing_and_jwt_identity_fidelity(auth_app_env):
+    """
+    Test 8b: Authenticated audit submission derives actor identity strictly from verified JWT.
+    Verifies:
+    1. Forged request-body user_id cannot impersonate another user.
+    2. Forged request-body role cannot grant elevated privileges in audit logs.
+    3. Credentials and tokens in details are safely redacted.
+    """
+    client = auth_app_env["client"]
+
+    # Log in as legitimate viewer to obtain genuine signed JWT
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+    user_data = login_res.json()["user"]
+    verified_user_id = user_data["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Submit audit event attempting to spoof actor identity as "admin"
+    res = client.post(
+        "/api/v1/audit/log",
+        json={
+            "event_type": "MALICIOUS_IMPERSONATION_ATTEMPT",
+            "page": "Admin Panel",
+            "user_id": "target_admin_victim_99",
+            "role": "admin",
+            "details": {
+                "action": "privilege_escalation",
+                "auth_token": "secret_session_bearer_token",
+                "api_key": "leaked_master_admin_api_key",
+                "normal_param": "benchmark_run"
+            }
+        },
+        headers=headers
+    )
+    assert res.status_code == 200
+    assert res.json()["status"] == "recorded"
+    assert res.json()["event_type"] == "MALICIOUS_IMPERSONATION_ATTEMPT"
+
+    # Inspect recorded log in DATA_STORE.audit_logger matching the custom event
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "MALICIOUS_IMPERSONATION_ATTEMPT"]
+    assert len(matching) >= 1
+    recent_entry = matching[0]
+
+    # Verify actor identity matches verified JWT, NOT the forged body fields
+    assert recent_entry["user_id"] == verified_user_id
+    assert recent_entry["user_id"] != "target_admin_victim_99"
+    assert recent_entry["role"] == "viewer"
+    assert recent_entry["role"] != "admin"
+
+    # Verify spoofing attempt was detected and marked
+    assert recent_entry["details"]["client_supplied_user_id"] == "[IGNORED_MISMATCH]"
+    assert recent_entry["details"]["client_supplied_role"] == "[IGNORED_MISMATCH]"
+
+    # Verify credentials in details were redacted
+    assert recent_entry["details"]["auth_token"] == "[REDACTED]"
+    assert recent_entry["details"]["api_key"] == "[REDACTED]"
+    assert recent_entry["details"]["normal_param"] == "benchmark_run"
+
+
+def test_audit_log_endpoint_authorized_legitimate_event(auth_app_env):
+    """
+    Test 8c: Authorized user can submit legitimate audit event without spoofed fields.
+    """
+    client = auth_app_env["client"]
+
+    # Log in as legitimate viewer
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    verified_user_id = login_res.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    res = client.post(
+        "/api/v1/audit/log",
+        json={
+            "event_type": "PAGE_NAVIGATION",
+            "page": "Case Explorer",
+            "details": {"action": "tab_switch", "target_tab": "Timeline"}
+        },
+        headers=headers
+    )
+    assert res.status_code == 200
+    assert res.json() == {"status": "recorded", "event_type": "PAGE_NAVIGATION"}
+
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "PAGE_NAVIGATION"]
+    assert len(matching) >= 1
+    entry = matching[0]
+    assert entry["user_id"] == verified_user_id
+    assert entry["role"] == "viewer"
+    assert entry["event_type"] == "PAGE_NAVIGATION"
+    assert entry["page"] == "Case Explorer"
+    assert entry["details"]["action"] == "tab_switch"
+
+
+def test_audit_log_endpoint_recursive_sanitization_nested_and_lists(auth_app_env):
+    """
+    Test 8d: Sensitive fields are redacted recursively, including nested dictionaries and lists,
+    while harmless details remain intact.
+    """
+    client = auth_app_env["client"]
+
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    nested_payload = {
+        "event_type": "DATA_EXPORT",
+        "page": "Reports",
+        "details": {
+            "session": {
+                "auth_token": "secret-nested-token-999",
+                "ordinary_session_id": "sess-xyz-123"
+            },
+            "credentials_list": [
+                {"access_key": "raw-access-key-val", "label": "primary"},
+                {"user_password": "super-secret-password-123", "role": "viewer"}
+            ],
+            "metrics": {
+                "rows_exported": 50,
+                "filters_applied": ["district_A", "2026"]
+            }
+        }
+    }
+
+    res = client.post("/api/v1/audit/log", json=nested_payload, headers=headers)
+    assert res.status_code == 200
+
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "DATA_EXPORT"]
+    assert len(matching) >= 1
+    entry = matching[0]
+    details = entry["details"]
+
+    # Nested dictionary redaction
+    assert details["session"]["auth_token"] == "[REDACTED]"
+    assert details["session"]["ordinary_session_id"] == "sess-xyz-123"
+
+    # List of dictionaries redaction
+    assert details["credentials_list"][0]["access_key"] == "[REDACTED]"
+    assert details["credentials_list"][0]["label"] == "primary"
+    assert details["credentials_list"][1]["user_password"] == "[REDACTED]"
+    assert details["credentials_list"][1]["role"] == "viewer"
+
+    # Harmless details preservation
+    assert details["metrics"]["rows_exported"] == 50
+    assert details["metrics"]["filters_applied"] == ["district_A", "2026"]
+
+
+def test_audit_log_endpoint_institutional_api_key_compatible(auth_app_env):
+    """
+    Test 8e: Institutional API-key authentication is compatible with POST /api/v1/audit/log.
+    """
+    client = auth_app_env["client"]
+
+    # Use institutional analyst API key
+    analyst_headers = {"X-API-Key": "analyst-key-leaky-2026"}
+
+    res = client.post(
+        "/api/v1/audit/log",
+        json={
+            "event_type": "ANALYST_QUERY",
+            "page": "Funnel Analysis",
+            "user_id": "spoofed_admin",
+            "role": "admin",
+            "details": {"query": "district_leakage"}
+        },
+        headers=analyst_headers
+    )
+    assert res.status_code == 200
+
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "ANALYST_QUERY"]
+    assert len(matching) >= 1
+    entry = matching[0]
+    assert entry["user_id"] == "key_analyst"
+    assert entry["role"] == "analyst"
+    assert entry["details"]["client_supplied_user_id"] == "[IGNORED_MISMATCH]"
+    assert entry["details"]["client_supplied_role"] == "[IGNORED_MISMATCH]"
+    assert entry["details"]["query"] == "district_leakage"
+
+
+def test_audit_log_endpoint_key_normalization_variations(auth_app_env):
+    """
+    Test 8f (Phase 2.1): Normalized sensitive key variations are securely redacted.
+    Covers:
+    - apiKey, api_key, apikey, api-key, API_KEY
+    - accessKey, access_key, Access-Key
+    - accessToken, access_token
+    - clientSecret, client_secret
+    - password, passwd, user_password
+    - authorization, credential
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    variations_payload = {
+        "event_type": "KEY_VARIATIONS_CHECK",
+        "page": "Security Test",
+        "details": {
+            "apiKey": "raw-val-1",
+            "api_key": "raw-val-2",
+            "apikey": "raw-val-3",
+            "api-key": "raw-val-4",
+            "API_KEY": "raw-val-5",
+            "accessKey": "raw-val-6",
+            "access_key": "raw-val-7",
+            "Access-Key": "raw-val-8",
+            "accessToken": "raw-val-9",
+            "access_token": "raw-val-10",
+            "clientSecret": "raw-val-11",
+            "client_secret": "raw-val-12",
+            "password": "raw-val-13",
+            "passwd": "raw-val-14",
+            "user_password": "raw-val-15",
+            "authorization": "Bearer raw-val-16",
+            "credential": "raw-val-17",
+            "harmless_metric": 42,
+            "harmless_label": "benchmark"
+        }
+    }
+
+    res = client.post("/api/v1/audit/log", json=variations_payload, headers=headers)
+    assert res.status_code == 200
+
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "KEY_VARIATIONS_CHECK"]
+    assert len(matching) >= 1
+    details = matching[0]["details"]
+
+    sensitive_keys = [
+        "apiKey", "api_key", "apikey", "api-key", "API_KEY",
+        "accessKey", "access_key", "Access-Key",
+        "accessToken", "access_token",
+        "clientSecret", "client_secret",
+        "password", "passwd", "user_password",
+        "authorization", "credential"
+    ]
+    for sk in sensitive_keys:
+        assert details[sk] == "[REDACTED]", f"Expected {sk} to be [REDACTED], got {details[sk]}"
+
+    assert details["harmless_metric"] == 42
+    assert details["harmless_label"] == "benchmark"
+
+
+def test_audit_log_endpoint_nested_identity_protection(auth_app_env):
+    """
+    Test 8g (Phase 2.1): Client-supplied identity and role values inside arbitrary details
+    cannot override, impersonate, or be mistaken for verified audit actor identity.
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    verified_user_id = login_res.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    identity_spoof_payload = {
+        "event_type": "IDENTITY_PROTECTION_CHECK",
+        "page": "Admin Gateway",
+        "details": {
+            "user_id": "impersonated_admin_user",
+            "actor_id": "root_system_admin",
+            "email": "victim_admin@gov.in",
+            "role": "admin",
+            "query_target": "district_leakage",
+            "sub_context": {
+                "user_id": "nested_attacker",
+                "email": "nested_victim@gov.in",
+                "action": "deep_inspect"
+            }
+        }
+    }
+
+    res = client.post("/api/v1/audit/log", json=identity_spoof_payload, headers=headers)
+    assert res.status_code == 200
+
+    matching = [e for e in DATA_STORE.audit_logger.get_logs(limit=20) if e.get("event_type") == "IDENTITY_PROTECTION_CHECK"]
+    assert len(matching) >= 1
+    entry = matching[0]
+
+    # Authoritative top-level actor identity MUST be the verified JWT caller
+    assert entry["user_id"] == verified_user_id
+    assert entry["user_id"] != "impersonated_admin_user"
+    assert entry["role"] == "viewer"
+    assert entry["role"] != "admin"
+
+    # Nested identity fields in details must be sanitized to prevent mistaking them for verified actors
+    details = entry["details"]
+    assert details["user_id"] == "[UNVERIFIED_CLIENT_IDENTITY]"
+    assert details["actor_id"] == "[UNVERIFIED_CLIENT_IDENTITY]"
+    assert details["email"] == "[UNVERIFIED_CLIENT_IDENTITY]"
+    assert details["role"] == "[UNVERIFIED_CLIENT_ROLE]"
+    assert details["query_target"] == "district_leakage"
+
+    sub_ctx = details["sub_context"]
+    assert sub_ctx["user_id"] == "[UNVERIFIED_CLIENT_IDENTITY]"
+    assert sub_ctx["email"] == "[UNVERIFIED_CLIENT_IDENTITY]"
+    assert sub_ctx["action"] == "deep_inspect"
+
+
+def test_audit_log_endpoint_bounds_payload_size_limit(auth_app_env):
+    """
+    Test 8h (Phase 2.1): Submissions exceeding maximum serialized details size (16 KB)
+    are rejected with HTTP 400 Bad Request and create ZERO audit log entries.
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    initial_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_SIZE_CHECK"
+    ])
+
+    # Generate a payload whose details serialize to > 16 KB (e.g. ~18 KB)
+    oversized_details = {"large_array": ["x" * 100 for _ in range(180)]}
+    res = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "OVERSIZED_SIZE_CHECK", "details": oversized_details},
+        headers=headers
+    )
+    assert res.status_code == 400
+    assert "16 KB" in res.json().get("detail", "") or "serialized size" in res.json().get("detail", "")
+
+    final_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    final_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_SIZE_CHECK"
+    ])
+    assert final_audit_events == initial_audit_events
+    assert final_matching == initial_matching == 0
+
+
+def test_audit_log_endpoint_bounds_nesting_depth_limit(auth_app_env):
+    """
+    Test 8i (Phase 2.1): Submissions exceeding maximum nesting depth (8)
+    are rejected with HTTP 400 Bad Request and create ZERO audit log entries.
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    initial_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_DEPTH_CHECK"
+    ])
+
+    # Depth 9
+    deep_details = {}
+    curr = deep_details
+    for i in range(8):
+        curr["level"] = {}
+        curr = curr["level"]
+    curr["val"] = "too_deep"
+
+    res = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "OVERSIZED_DEPTH_CHECK", "details": deep_details},
+        headers=headers
+    )
+    assert res.status_code == 400
+    assert "nesting depth" in res.json().get("detail", "")
+
+    final_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    final_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_DEPTH_CHECK"
+    ])
+    assert final_audit_events == initial_audit_events
+    assert final_matching == initial_matching == 0
+
+
+def test_audit_log_endpoint_bounds_total_entries_limit(auth_app_env):
+    """
+    Test 8j (Phase 2.1): Submissions exceeding maximum entries limit (200)
+    are rejected with HTTP 400 Bad Request and create ZERO audit log entries.
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    initial_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_ENTRIES_CHECK"
+    ])
+
+    # 201 entries
+    many_entries = {f"key_{i}": f"val_{i}" for i in range(201)}
+
+    res = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "OVERSIZED_ENTRIES_CHECK", "details": many_entries},
+        headers=headers
+    )
+    assert res.status_code == 400
+    assert "total entries limit" in res.json().get("detail", "")
+
+    final_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    final_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "OVERSIZED_ENTRIES_CHECK"
+    ])
+    assert final_audit_events == initial_audit_events
+    assert final_matching == initial_matching == 0
+
+
+def test_audit_log_endpoint_bounds_string_length_limit(auth_app_env):
+    """
+    Test 8k (Phase 2.1): Submissions containing strings exceeding 2,000 characters
+    are rejected with HTTP 400 Bad Request and create ZERO audit log entries.
+    """
+    client = auth_app_env["client"]
+    login_res = client.post("/api/v1/auth/login", json={
+        "username": "viewer",
+        "password": "ViewerPassword123!"
+    })
+    token = login_res.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    initial_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "LONG_STRING_CHECK"
+    ])
+
+    long_string_details = {"normal_key": "x" * 2001}
+
+    res = client.post(
+        "/api/v1/audit/log",
+        json={"event_type": "LONG_STRING_CHECK", "details": long_string_details},
+        headers=headers
+    )
+    assert res.status_code == 400
+    assert "maximum length" in res.json().get("detail", "")
+
+    final_audit_events = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("endpoint", "").startswith("/audit/event")
+    ])
+    final_matching = len([
+        e for e in DATA_STORE.audit_logger.get_logs(limit=1000)
+        if e.get("event_type") == "LONG_STRING_CHECK"
+    ])
+    assert final_audit_events == initial_audit_events
+    assert final_matching == initial_matching == 0

@@ -436,10 +436,11 @@ def test_review_queue_and_audit_event_endpoints(api_client):
     assert "total_pairs" in rq_data
     assert rq_data["zero_pii_verified"] is True
 
-    # Audit event logging
+    # Audit event logging (authenticated)
     log_resp = api_client.post(
         "/api/v1/audit/log",
-        json={"event_type": "PAGE_VISIT", "page": "📊 Executive Overview", "user_id": "analyst_1", "role": "analyst"}
+        json={"event_type": "PAGE_VISIT", "page": "📊 Executive Overview", "user_id": "analyst_1", "role": "analyst"},
+        headers=analyst_headers
     )
     assert log_resp.status_code == 200
     assert log_resp.json()["status"] == "recorded"

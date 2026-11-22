@@ -202,13 +202,42 @@ class PrivacyBudgetTracker:
         self.spent_delta = 0.0
         self.ledger: List[Dict[str, Any]] = []
 
-    def allocate(self, query_id: str, epsilon: float, delta: float = 0.0) -> None:
+    def allocate(
+        self,
+        query_id: str,
+        epsilon: float,
+        delta: float = 0.0,
+        actor: Optional[str] = None,
+        role: Optional[str] = None,
+        idempotency_key: Optional[str] = None
+    ) -> None:
         """
         Verifies that sufficient privacy budget remains and logs the consumption.
+        Supports idempotency: repeated calls with same idempotency_key return without duplicate charging.
         Raises PrivacyBudgetExceededError if budget is exhausted.
         """
         if epsilon < 0 or delta < 0:
             raise ValueError("Epsilon and delta allocations must be non-negative.")
+
+        if idempotency_key:
+            for entry in self.ledger:
+                if entry.get("idempotency_key") == idempotency_key:
+                    prev_eps = float(entry.get("allocated_epsilon", 0.0))
+                    prev_delta = float(entry.get("allocated_delta", 0.0))
+                    prev_query = entry.get("query_id")
+                    prev_actor = entry.get("actor")
+                    prev_role = entry.get("role")
+                    if (
+                        abs(prev_eps - epsilon) > 1e-9
+                        or abs(prev_delta - delta) > 1e-12
+                        or (prev_query != query_id)
+                        or (prev_actor != actor)
+                        or (prev_role != role)
+                    ):
+                        raise ValueError(
+                            f"Idempotency conflict: key '{idempotency_key}' previously recorded with conflicting parameters."
+                        )
+                    return
 
         if (self.spent_epsilon + epsilon) > (self.total_epsilon + 1e-9):
             raise PrivacyBudgetExceededError(
@@ -230,7 +259,10 @@ class PrivacyBudgetTracker:
             "allocated_epsilon": round(epsilon, 4),
             "allocated_delta": delta,
             "cumulative_spent_epsilon": round(self.spent_epsilon, 4),
-            "remaining_epsilon": round(self.remaining_epsilon, 4)
+            "remaining_epsilon": round(self.remaining_epsilon, 4),
+            "actor": actor,
+            "role": role,
+            "idempotency_key": idempotency_key
         })
 
     @property
@@ -256,6 +288,241 @@ class PrivacyBudgetTracker:
         self.spent_epsilon = 0.0
         self.spent_delta = 0.0
         self.ledger.clear()
+
+
+class PersistentPrivacyBudgetTracker(PrivacyBudgetTracker):
+    """
+    Persistent Differential Privacy budget tracker bridging to PrivacyBudgetRepository.
+
+    Preserves the standard PrivacyBudgetTracker interface while delegating persistence,
+    atomic allocation, and ledger management to PrivacyBudgetRepository (PostgreSQL in production/staging,
+    or verified local test fallback).
+    """
+
+    def __init__(
+        self,
+        budget_id: str = "global",
+        total_epsilon: Optional[float] = None,
+        total_delta: float = 1e-4
+    ):
+        if isinstance(budget_id, (int, float)):
+            total_epsilon = float(budget_id)
+            budget_id = "global"
+
+        self.budget_id = str(budget_id)
+        self._initial_total_epsilon = float(total_epsilon) if total_epsilon is not None else None
+        self._total_delta = float(total_delta)
+        self._spent_delta = 0.0
+
+    def ensure_initialized(
+        self,
+        total_epsilon: Optional[float] = None,
+        total_delta: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """
+        Ensures the persistent privacy budget record exists in the repository.
+        Guarantees:
+        - Creates record only if missing.
+        - Preserves existing spent epsilon, spent delta, and ledger.
+        - Concurrency-safe under multi-worker initialization.
+        """
+        if total_epsilon is None:
+            if self._initial_total_epsilon is not None:
+                total_epsilon = self._initial_total_epsilon
+            else:
+                total_epsilon = get_configured_total_budget()
+        if total_delta is None:
+            total_delta = self._total_delta
+        from src.repository import PrivacyBudgetRepository
+        return PrivacyBudgetRepository.ensure_budget_initialized(
+            budget_id=self.budget_id,
+            total_epsilon=float(total_epsilon),
+            total_delta=float(total_delta)
+        )
+
+    @property
+    def total_epsilon(self) -> float:
+        from src.repository import PrivacyBudgetRepository
+        b = PrivacyBudgetRepository.get_budget(self.budget_id)
+        return float(b["epsilon_total"])
+
+    @total_epsilon.setter
+    def total_epsilon(self, val: float) -> None:
+        val_f = float(val)
+        from src.repository import _is_persistent_db_active, _local_store_lock, _local_privacy_budget
+        if not _is_persistent_db_active():
+            with _local_store_lock:
+                b = _local_privacy_budget.setdefault(self.budget_id, {
+                    "epsilon_total": 10.0, "epsilon_spent": 0.0,
+                    "delta_total": 1e-4, "delta_spent": 0.0
+                })
+                b["epsilon_total"] = val_f
+        else:
+            from src.database import get_db_cursor
+            with get_db_cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE public.privacy_budget SET epsilon_total = %s WHERE id = %s;",
+                    (val_f, self.budget_id)
+                )
+
+    @property
+    def spent_epsilon(self) -> float:
+        from src.repository import PrivacyBudgetRepository
+        b = PrivacyBudgetRepository.get_budget(self.budget_id)
+        return float(b["epsilon_spent"])
+
+    @spent_epsilon.setter
+    def spent_epsilon(self, val: float) -> None:
+        val_f = float(val)
+        from src.repository import _is_persistent_db_active, _local_store_lock, _local_privacy_budget
+        if not _is_persistent_db_active():
+            with _local_store_lock:
+                b = _local_privacy_budget.setdefault(self.budget_id, {
+                    "epsilon_total": 10.0, "epsilon_spent": 0.0,
+                    "delta_total": 1e-4, "delta_spent": 0.0
+                })
+                b["epsilon_spent"] = val_f
+        else:
+            from src.database import get_db_cursor
+            with get_db_cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE public.privacy_budget SET epsilon_spent = %s WHERE id = %s;",
+                    (val_f, self.budget_id)
+                )
+
+    @property
+    def remaining_epsilon(self) -> float:
+        return max(0.0, self.total_epsilon - self.spent_epsilon)
+
+    @property
+    def total_delta(self) -> float:
+        from src.repository import PrivacyBudgetRepository
+        b = PrivacyBudgetRepository.get_budget(self.budget_id)
+        return float(b.get("delta_total", self._total_delta))
+
+    @total_delta.setter
+    def total_delta(self, val: float) -> None:
+        val_f = float(val)
+        self._total_delta = val_f
+        from src.repository import _is_persistent_db_active, _local_store_lock, _local_privacy_budget
+        if not _is_persistent_db_active():
+            with _local_store_lock:
+                b = _local_privacy_budget.setdefault(self.budget_id, {
+                    "epsilon_total": 10.0, "epsilon_spent": 0.0,
+                    "delta_total": 1e-4, "delta_spent": 0.0
+                })
+                b["delta_total"] = val_f
+        else:
+            from src.database import get_db_cursor
+            with get_db_cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE public.privacy_budget SET delta_total = %s WHERE id = %s;",
+                    (val_f, self.budget_id)
+                )
+
+    @property
+    def spent_delta(self) -> float:
+        from src.repository import PrivacyBudgetRepository
+        b = PrivacyBudgetRepository.get_budget(self.budget_id)
+        return float(b.get("delta_spent", 0.0))
+
+    @spent_delta.setter
+    def spent_delta(self, val: float) -> None:
+        val_f = float(val)
+        self._spent_delta = val_f
+        from src.repository import _is_persistent_db_active, _local_store_lock, _local_privacy_budget
+        if not _is_persistent_db_active():
+            with _local_store_lock:
+                b = _local_privacy_budget.setdefault(self.budget_id, {
+                    "epsilon_total": 10.0, "epsilon_spent": 0.0,
+                    "delta_total": 1e-4, "delta_spent": 0.0
+                })
+                b["delta_spent"] = val_f
+        else:
+            from src.database import get_db_cursor
+            with get_db_cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE public.privacy_budget SET delta_spent = %s WHERE id = %s;",
+                    (val_f, self.budget_id)
+                )
+
+    @property
+    def remaining_delta(self) -> float:
+        return max(0.0, self.total_delta - self.spent_delta)
+
+    @property
+    def is_exhausted(self) -> bool:
+        return self.remaining_epsilon <= 1e-6 or self.remaining_delta <= 1e-12
+
+    def allocate(
+        self,
+        query_id: str,
+        epsilon: float,
+        delta: float = 0.0,
+        actor: Optional[str] = None,
+        role: Optional[str] = None,
+        idempotency_key: Optional[str] = None
+    ) -> None:
+        """
+        Verifies that sufficient privacy budget remains and logs the consumption.
+        Delegates atomic allocation, idempotency handling, and ledgering to PrivacyBudgetRepository.
+        Raises PrivacyBudgetExceededError if budget is exhausted.
+        """
+        if epsilon < 0 or delta < 0:
+            raise ValueError("Epsilon and delta allocations must be non-negative.")
+
+        from src.repository import PrivacyBudgetRepository
+        PrivacyBudgetRepository.allocate_budget(
+            budget_id=self.budget_id,
+            epsilon=float(epsilon),
+            query_id=query_id,
+            delta=float(delta),
+            actor=actor,
+            role=role,
+            idempotency_key=idempotency_key
+        )
+        self._spent_delta = self.spent_delta
+
+    def reset(
+        self,
+        total_epsilon: Optional[float] = None,
+        total_delta: Optional[float] = None,
+        actor: Optional[str] = None,
+        role: Optional[str] = None,
+        reason: Optional[str] = "Administrative reset"
+    ) -> None:
+        """
+        Administratively resets the privacy budget.
+        Delegates to PrivacyBudgetRepository.reset_budget with persistent audit tracking.
+        """
+        if total_epsilon is not None:
+            new_tot = float(total_epsilon)
+        elif self._initial_total_epsilon is not None:
+            new_tot = self._initial_total_epsilon
+        else:
+            new_tot = get_configured_total_budget()
+
+        new_delta = float(total_delta) if total_delta is not None else self._total_delta
+
+        from src.repository import PrivacyBudgetRepository
+        PrivacyBudgetRepository.reset_budget(
+            budget_id=self.budget_id,
+            total_epsilon=new_tot,
+            total_delta=new_delta,
+            actor=actor,
+            role=role,
+            reason=reason
+        )
+        self._spent_delta = 0.0
+
+    def get_ledger(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Retrieves chronological ledger records from the repository."""
+        from src.repository import PrivacyBudgetRepository
+        return PrivacyBudgetRepository.get_ledger(budget_id=self.budget_id, limit=limit)
+
+    @property
+    def ledger(self) -> List[Dict[str, Any]]:
+        return self.get_ledger()
 
 
 # ==============================================================================

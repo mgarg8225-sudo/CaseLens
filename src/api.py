@@ -55,6 +55,7 @@ from src.utils import clean_nan, SafeJSONResponse
 
 from src.privacy import (
     PrivacyBudgetTracker,
+    PersistentPrivacyBudgetTracker,
     PrivacyBudgetExceededError,
     LaplaceMechanism,
     apply_kanonymity_suppression,
@@ -80,6 +81,11 @@ from src.analytics import (
     compute_filtered_districts,
     compute_filtered_evaluation,
     compute_filtered_before_after,
+)
+from src.database import (
+    validate_database_config,
+    check_database_health,
+    is_postgres_enabled,
 )
 
 
@@ -215,11 +221,16 @@ class AggregateQueryRequest(BaseModel):
         ge=5,
         description="Minimum cell count for k-anonymity suppression (minimum 5)"
     )
+    idempotency_key: Optional[str] = Field(
+        default=None,
+        description="Optional unique key to ensure idempotent budget allocation"
+    )
 
 
 class ResetBudgetRequest(BaseModel):
     total_epsilon: Optional[float] = Field(default=None, gt=0.0, le=1000.0)
     total_delta: float = Field(default=1e-4, gt=0.0, le=1e-2)
+    reason: Optional[str] = Field(default="Administrative reset", description="Audit justification for administrative reset")
 
 
 class UpdatePrivacySettingsRequest(BaseModel):
@@ -357,7 +368,7 @@ class DataStore:
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = data_dir
         configured_eps = get_configured_total_budget()
-        self.budget_tracker = PrivacyBudgetTracker(total_epsilon=configured_eps, total_delta=1e-4)
+        self.budget_tracker = PersistentPrivacyBudgetTracker(budget_id="global", total_epsilon=configured_eps, total_delta=1e-4)
         self.default_epsilon: float = 0.25
         self.k_threshold: int = 5
         self.audit_logger = ApiAuditLogger(os.path.join(data_dir, "api_audit_log.json"))
@@ -719,9 +730,9 @@ def get_current_user(
     Test-mode role header is strictly isolated and only active if CASELENS_TEST_AUTH == '1'.
     """
     token = None
-    if x_api_key:
+    if x_api_key and isinstance(x_api_key, str):
         token = x_api_key.strip()
-    elif authorization and authorization.lower().startswith("bearer "):
+    elif authorization and isinstance(authorization, str) and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
         # Decode and validate signed JWT if present
         if token.count(".") == 2:
@@ -742,7 +753,7 @@ def get_current_user(
         return UserContext(user_id=f"key_{role.value}", role=role, auth_method="api_key")
 
     # 2. Test-isolated role header: strictly disallowed in production
-    if os.environ.get("CASELENS_TEST_AUTH") == "1" and x_user_role:
+    if os.environ.get("CASELENS_TEST_AUTH") == "1" and x_user_role and isinstance(x_user_role, str):
         role_str = x_user_role.lower().strip()
         if role_str in [r.value for r in Role]:
             return UserContext(user_id=f"test_header_{role_str}", role=Role(role_str), auth_method="test_role_header")
@@ -760,6 +771,8 @@ def require_role(minimum_role: Role):
         request: Request,
         user: UserContext = Depends(get_current_user)
     ) -> UserContext:
+        request.state.user = user
+        request.state.user_id = user.user_id
         request.state.user_role = user.role.value
         user_rank = ROLE_HIERARCHY.get(user.role, 0)
         required_rank = ROLE_HIERARCHY.get(minimum_role, 0)
@@ -800,17 +813,50 @@ def sanitize_and_verify_payload(
     payload: Any,
     epsilon_cost: float = 0.0,
     query_id: str = "api_aggregate_query",
-    allowed_fields: Optional[Set[str]] = None
+    allowed_fields: Optional[Set[str]] = None,
+    user: Optional[UserContext] = None,
+    request: Optional[Request] = None,
+    idempotency_key: Optional[str] = None
 ) -> Any:
     """
     Enforces privacy layer requirements on every response:
     1. Zero-PII Audit: Strictly rejects payload if survivor personal fields exist.
-    2. Privacy Budget Check: Allocates epsilon cost against the global budget tracker.
+    2. Privacy Budget Check: Allocates epsilon cost against the global budget tracker,
+       propagating verified actor and role exclusively from authenticated UserContext.
     """
     # 1. Deduct DP budget if applicable
     if epsilon_cost > 0.0:
+        actor: Optional[str] = None
+        role: Optional[str] = None
+
+        if user is not None and isinstance(user, UserContext):
+            actor = user.user_id
+            role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        elif request is not None:
+            req_user = getattr(request.state, "user", None)
+            if req_user is not None and isinstance(req_user, UserContext):
+                actor = req_user.user_id
+                role = req_user.role.value if hasattr(req_user.role, "value") else str(req_user.role)
+            else:
+                actor = getattr(request.state, "user_id", None)
+                role = getattr(request.state, "user_role", None)
+
+        if idempotency_key is None and request is not None:
+            try:
+                raw_hdrs = getattr(request, "headers", None)
+                if raw_hdrs and hasattr(raw_hdrs, "get"):
+                    idempotency_key = raw_hdrs.get("X-Idempotency-Key") or raw_hdrs.get("Idempotency-Key")
+            except Exception:
+                idempotency_key = None
+
         try:
-            DATA_STORE.budget_tracker.allocate(query_id=query_id, epsilon=epsilon_cost)
+            DATA_STORE.budget_tracker.allocate(
+                query_id=query_id,
+                epsilon=epsilon_cost,
+                actor=actor,
+                role=role,
+                idempotency_key=idempotency_key
+            )
         except PrivacyBudgetExceededError as e:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -829,6 +875,166 @@ def sanitize_and_verify_payload(
     return clean_nan(payload)
 
 
+MAX_AUDIT_DETAILS_BYTES = 16 * 1024  # 16 KB
+MAX_AUDIT_DETAILS_DEPTH = 8
+MAX_AUDIT_DETAILS_ENTRIES = 200
+MAX_AUDIT_STRING_LENGTH = 2000
+
+SENSITIVE_AUDIT_KEY_PATTERNS = {
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "apikey",
+    "accesskey",
+    "authorization",
+    "credential"
+}
+
+IDENTITY_KEY_PATTERNS = {
+    "userid",
+    "actorid",
+    "actoruserid",
+    "username",
+    "email"
+}
+
+ROLE_KEY_PATTERNS = {
+    "role",
+    "userrole",
+    "actorrole"
+}
+
+
+def validate_audit_details_bounds(val: Any) -> None:
+    """
+    Validates audit details payload against safety and resource bounds:
+    - Maximum serialized details size: 16 KB (16,384 bytes).
+    - Maximum nesting depth: 8.
+    - Maximum total dictionary/list entries: 200.
+    - Maximum individual string length: 2,000 characters.
+
+    Raises HTTPException(400) on any violation to prevent unverified truncation
+    or excessive resource exhaustion.
+    """
+    if val is None:
+        return
+
+    # 1. Serialized JSON size limit (16 KB)
+    try:
+        serialized = json.dumps(val)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid audit details: payload cannot be serialized to JSON: {str(e)}"
+        )
+    if len(serialized.encode("utf-8")) > MAX_AUDIT_DETAILS_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Audit details exceed maximum serialized size of {MAX_AUDIT_DETAILS_BYTES} bytes (16 KB)."
+        )
+
+    # 2. Structural traversal for depth, entry count, and string length
+    entry_count = 0
+
+    def _traverse(node: Any, current_depth: int) -> None:
+        nonlocal entry_count
+
+        if current_depth > MAX_AUDIT_DETAILS_DEPTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Audit details exceed maximum nesting depth of {MAX_AUDIT_DETAILS_DEPTH}."
+            )
+
+        if isinstance(node, dict):
+            entry_count += len(node)
+            if entry_count > MAX_AUDIT_DETAILS_ENTRIES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Audit details exceed maximum total entries limit of {MAX_AUDIT_DETAILS_ENTRIES}."
+                )
+            for k, v in node.items():
+                if isinstance(k, str) and len(k) > MAX_AUDIT_STRING_LENGTH:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Audit details contain key exceeding maximum length of {MAX_AUDIT_STRING_LENGTH} characters."
+                    )
+                _traverse(v, current_depth + 1)
+
+        elif isinstance(node, (list, tuple)):
+            entry_count += len(node)
+            if entry_count > MAX_AUDIT_DETAILS_ENTRIES:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Audit details exceed maximum total entries limit of {MAX_AUDIT_DETAILS_ENTRIES}."
+                )
+            for item in node:
+                _traverse(item, current_depth + 1)
+
+        elif isinstance(node, str):
+            if len(node) > MAX_AUDIT_STRING_LENGTH:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Audit details contain string exceeding maximum length of {MAX_AUDIT_STRING_LENGTH} characters."
+                )
+
+    _traverse(val, 1)
+
+
+def sanitize_audit_details(
+    val: Any,
+    verified_actor_id: Optional[str] = None,
+    verified_role: Optional[str] = None
+) -> Any:
+    """
+    Recursively redacts sensitive values (passwords, tokens, secrets, API keys, credentials)
+    and sanitizes client-supplied nested identity fields from audit details dictionaries and lists.
+    Guarantees:
+    - Never mutates the input data in-place.
+    - Normalizes dictionary keys (lowercase, strips underscores, hyphens, and whitespace).
+    - Catches sensitive variations (apiKey, accessKey, clientSecret, passwd, token, etc.).
+    - Recursively processes nested dictionaries and lists.
+    - Protects nested identity/role fields so they cannot impersonate verified actors.
+    - Preserves harmless keys and metadata.
+    - Handles arbitrary/unexpected types safely.
+    """
+    if isinstance(val, dict):
+        sanitized = {}
+        for k, v in val.items():
+            k_str = str(k).lower().strip()
+            k_norm = k_str.replace("_", "").replace("-", "").replace(" ", "")
+
+            if isinstance(v, (dict, list, tuple)):
+                sanitized[k] = sanitize_audit_details(
+                    v,
+                    verified_actor_id=verified_actor_id,
+                    verified_role=verified_role
+                )
+            elif any(term in k_norm for term in SENSITIVE_AUDIT_KEY_PATTERNS):
+                sanitized[k] = "[REDACTED]"
+            elif k_norm in IDENTITY_KEY_PATTERNS and verified_actor_id is not None and str(v) != verified_actor_id:
+                sanitized[k] = "[UNVERIFIED_CLIENT_IDENTITY]"
+            elif k_norm in ROLE_KEY_PATTERNS and verified_role is not None and str(v).lower() != verified_role.lower():
+                sanitized[k] = "[UNVERIFIED_CLIENT_ROLE]"
+            else:
+                sanitized[k] = sanitize_audit_details(
+                    v,
+                    verified_actor_id=verified_actor_id,
+                    verified_role=verified_role
+                )
+        return sanitized
+    elif isinstance(val, (list, tuple)):
+        return [
+            sanitize_audit_details(
+                item,
+                verified_actor_id=verified_actor_id,
+                verified_role=verified_role
+            )
+            for item in val
+        ]
+    return val
+
+
 # ==============================================================================
 # 7. FastAPI App Construction
 # ==============================================================================
@@ -837,7 +1043,10 @@ def sanitize_and_verify_payload(
 async def lifespan(app: FastAPI):
     """Modern lifespan event handler replacing deprecated @app.on_event handlers."""
     configured_eps = get_configured_total_budget()
-    DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
+    if hasattr(DATA_STORE.budget_tracker, "ensure_initialized"):
+        DATA_STORE.budget_tracker.ensure_initialized(total_epsilon=configured_eps)
+    else:
+        DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
     DATA_STORE.default_epsilon = 0.25
     DATA_STORE.k_threshold = 5
     DATA_STORE.filter_cache.clear()
@@ -875,8 +1084,6 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     if DATA_STORE.data_dir != data_dir:
         DATA_STORE = DataStore(data_dir)
     else:
-        configured_eps = get_configured_total_budget()
-        DATA_STORE.budget_tracker.reset(total_epsilon=configured_eps)
         DATA_STORE.filter_cache.clear()
 
     app = FastAPI(
@@ -1010,6 +1217,41 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             }
         })
 
+    @app.get("/api/v1/database/health", tags=["Admin Controls"])
+    def database_health_check(
+        user: UserContext = Depends(require_role(Role.ADMIN))
+    ):
+        """
+        Diagnostic PostgreSQL database health endpoint for Administrators.
+        Probes active database connection with SELECT 1 when PostgreSQL persistence is configured.
+        Never exposes raw connection URLs, credentials, or secrets.
+        """
+        config = validate_database_config()
+        cfg_status = config.get("status", "UNKNOWN")
+        is_fallback = (cfg_status == "LOCAL_FALLBACK")
+        driver_avail = bool(config.get("driver_available", False))
+        configured = bool(config.get("configured", False))
+
+        if configured and driver_avail and cfg_status == "READY" and is_postgres_enabled():
+            probe = check_database_health()
+            db_status = probe.get("status", "UNHEALTHY")
+            postgres_enabled = bool(probe.get("postgres_enabled", True))
+            latency_ms = probe.get("latency_ms")
+        else:
+            db_status = cfg_status
+            postgres_enabled = False
+            latency_ms = None
+
+        payload = {
+            "status": db_status,
+            "postgres_enabled": postgres_enabled,
+            "latency_ms": latency_ms,
+            "configuration_readiness": cfg_status,
+            "local_fallback_active": is_fallback,
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        return clean_nan(payload)
+
     # ==========================================================================
     # 8b. Server-Side Filter & Cache Helpers
     # ==========================================================================
@@ -1127,7 +1369,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="summary_aggregate")
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=eps_spent,
+            query_id="summary_aggregate",
+            user=user,
+            request=request
+        )
 
     @app.get("/api/v1/funnel", tags=["Aggregates (Viewer+)"])
     def get_funnel_analytics(
@@ -1186,7 +1434,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="funnel_aggregate")
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=eps_spent,
+            query_id="funnel_aggregate",
+            user=user,
+            request=request
+        )
 
     @app.get("/api/v1/districts", tags=["Aggregates (Viewer+)"])
     def get_district_leakage(
@@ -1218,7 +1472,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="district_aggregate")
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=eps_spent,
+            query_id="district_aggregate",
+            user=user,
+            request=request
+        )
 
     @app.get("/api/v1/policy-context", tags=["Aggregates (Viewer+)"])
     def get_policy_context(
@@ -1369,7 +1629,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "cached": cached
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps_spent, query_id="bottlenecks_aggregate")
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=eps_spent,
+            query_id="bottlenecks_aggregate",
+            user=user,
+            request=request
+        )
 
     @app.get("/api/v1/categories", tags=["Deep Analytics (Analyst+)"])
     def get_category_disparities(
@@ -1392,7 +1658,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                     "cached": True
                 }
             }
-            return sanitize_and_verify_payload(payload, epsilon_cost=0.0, query_id="category_aggregate")
+            return sanitize_and_verify_payload(
+                payload,
+                epsilon_cost=0.0,
+                query_id="category_aggregate",
+                user=user,
+                request=request
+            )
 
         eps = 0.10
         if DATA_STORE.budget_tracker.remaining_epsilon < (eps - 1e-9):
@@ -1412,7 +1684,13 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 "cached": False
             }
         }
-        return sanitize_and_verify_payload(payload, epsilon_cost=eps, query_id="category_aggregate")
+        return sanitize_and_verify_payload(
+            payload,
+            epsilon_cost=eps,
+            query_id="category_aggregate",
+            user=user,
+            request=request
+        )
 
     @app.get("/api/v1/privacy/budget", tags=["Privacy Engine (Viewer+)"])
     def get_privacy_budget(
@@ -1499,10 +1777,21 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
 
         # Allocate budget
         request.state.epsilon_spent = request_body.epsilon
+        id_key = request_body.idempotency_key
+        if not id_key and request is not None:
+            try:
+                raw_hdrs = getattr(request, "headers", None)
+                if raw_hdrs and hasattr(raw_hdrs, "get"):
+                    id_key = raw_hdrs.get("X-Idempotency-Key") or raw_hdrs.get("Idempotency-Key")
+            except Exception:
+                id_key = None
         try:
             DATA_STORE.budget_tracker.allocate(
                 query_id=f"dynamic_aggregate_{dim}",
-                epsilon=request_body.epsilon
+                epsilon=request_body.epsilon,
+                actor=user.user_id,
+                role=user.role.value,
+                idempotency_key=id_key
             )
         except PrivacyBudgetExceededError as e:
             raise HTTPException(
@@ -1543,7 +1832,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
             "results": noisy_aggregates
         }
         DATA_STORE.filter_cache[cache_key] = payload
-        return sanitize_and_verify_payload(payload, epsilon_cost=0.0)
+        return sanitize_and_verify_payload(payload, epsilon_cost=0.0, user=user, request=request)
 
     SIMULATOR_SAFE_FIELDS = {
         "name", "guardian", "relative_name", "full_name",
@@ -1750,10 +2039,20 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         if request_body.total_epsilon is not None or request_body.total_delta is not None:
             new_eps = request_body.total_epsilon if request_body.total_epsilon is not None else DATA_STORE.budget_tracker.total_epsilon
             new_delta = request_body.total_delta if request_body.total_delta is not None else DATA_STORE.budget_tracker.total_delta
-            DATA_STORE.budget_tracker = PrivacyBudgetTracker(
-                total_epsilon=new_eps,
-                total_delta=new_delta
-            )
+            if hasattr(DATA_STORE.budget_tracker, "reset"):
+                DATA_STORE.budget_tracker.reset(
+                    total_epsilon=new_eps,
+                    total_delta=new_delta,
+                    actor=user.user_id,
+                    role=user.role.value,
+                    reason="Privacy settings update"
+                )
+            else:
+                DATA_STORE.budget_tracker = PersistentPrivacyBudgetTracker(
+                    budget_id="global",
+                    total_epsilon=new_eps,
+                    total_delta=new_delta
+                )
         DATA_STORE.filter_cache.clear()
 
         payload = {
@@ -1778,10 +2077,31 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         """
         req_eps = request_body.total_epsilon if request_body else None
         req_delta = request_body.total_delta if request_body else 1e-4
+        reason = request_body.reason if (request_body and hasattr(request_body, "reason") and request_body.reason) else "Administrative reset"
         new_eps = req_eps if req_eps is not None else get_configured_total_budget()
-        DATA_STORE.budget_tracker = PrivacyBudgetTracker(
-            total_epsilon=new_eps,
-            total_delta=req_delta
+        if hasattr(DATA_STORE.budget_tracker, "reset"):
+            DATA_STORE.budget_tracker.reset(
+                total_epsilon=new_eps,
+                total_delta=req_delta,
+                actor=user.user_id,
+                role=user.role.value,
+                reason=reason
+            )
+        else:
+            DATA_STORE.budget_tracker = PersistentPrivacyBudgetTracker(
+                budget_id="global",
+                total_epsilon=new_eps,
+                total_delta=req_delta
+            )
+        DATA_STORE.audit_logger.log_event(
+            actor=user.user_id,
+            role=user.role.value,
+            action="PRIVACY_BUDGET_RESET",
+            details={
+                "new_total_epsilon": new_eps,
+                "new_total_delta": req_delta,
+                "reason": reason
+            }
         )
         DATA_STORE.filter_cache.clear()
         payload = {
@@ -1891,23 +2211,67 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
     def record_audit_log_event(
         request: Request,
         request_body: AuditLogEventRequest,
+        user: UserContext = Depends(require_role(Role.VIEWER))
     ):
         """
         Records an application or session audit event (login, logout, page visit, access denied)
         into the immutable audit ledger with zero credentials or PII.
+        Derives actor user_id and role strictly from verified authentication context.
+        Rejects unauthenticated requests with HTTP 401; ignores any forged body user_id or role.
+        Enforces resource and safety bounds on details (<= 16 KB, depth <= 8, entries <= 200, string <= 2000).
         """
         client_ip = request.client.host if request.client else "127.0.0.1"
+
+        # Validate top-level string lengths
+        if request_body.event_type and len(request_body.event_type) > MAX_AUDIT_STRING_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Event type exceeds maximum allowed length of {MAX_AUDIT_STRING_LENGTH} characters."
+            )
+        if request_body.page and len(request_body.page) > MAX_AUDIT_STRING_LENGTH:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Page name exceeds maximum allowed length of {MAX_AUDIT_STRING_LENGTH} characters."
+            )
+
+        # Validate resource and safety bounds on details
+        if request_body.details:
+            validate_audit_details_bounds(request_body.details)
+
+        # Derive actor identity strictly from verified authentication context
+        actor_user_id = user.user_id
+        actor_role = user.role.value
+
+        # Recursively sanitize details and protect nested identity fields
+        safe_details = (
+            sanitize_audit_details(
+                request_body.details,
+                verified_actor_id=actor_user_id,
+                verified_role=actor_role
+            )
+            if request_body.details
+            else {}
+        )
+        if not isinstance(safe_details, dict):
+            safe_details = {"payload": safe_details}
+
+        # Document and flag if caller attempted to spoof another user or role
+        if request_body.user_id and request_body.user_id != actor_user_id:
+            safe_details["client_supplied_user_id"] = "[IGNORED_MISMATCH]"
+        if request_body.role and request_body.role.lower() != actor_role.lower():
+            safe_details["client_supplied_role"] = "[IGNORED_MISMATCH]"
+
         DATA_STORE.audit_logger.log_event(
             request_id=f"audit_{uuid.uuid4().hex[:8]}",
-            role=request_body.role or "viewer",
+            role=actor_role,
             method="POST",
             endpoint=f"/audit/event/{request_body.event_type.lower()}",
             status_code=200,
             client_ip=client_ip,
             event_type=request_body.event_type,
-            user_id=request_body.user_id or "anonymous",
+            user_id=actor_user_id,
             page=request_body.page,
-            details=request_body.details or {}
+            details=safe_details
         )
         return {"status": "recorded", "event_type": request_body.event_type}
 
