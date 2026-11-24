@@ -86,6 +86,7 @@ from src.database import (
     validate_database_config,
     check_database_health,
     is_postgres_enabled,
+    get_db_cursor,
 )
 
 
@@ -390,6 +391,8 @@ class DataStore:
         self.active_dataset_updated_by: Optional[str] = None
         self.published_dataset_id: Optional[str] = None
         self.registered_datasets: Dict[str, Dict[str, Any]] = {}
+        self._selection_explicitly_cleared: bool = False
+        self._selection_explicitly_set: bool = False
         self.load_data()
         self._load_active_registry()
 
@@ -504,12 +507,19 @@ class DataStore:
                         self.active_dataset_updated_by = data.get("active_dataset_updated_by")
                         self.registered_datasets = data.get("registered_datasets", {})
                         self.published_dataset_id = data.get("published_dataset_id")
+                        self._selection_explicitly_cleared = bool(data.get("selection_explicitly_cleared", False))
+                        self._selection_explicitly_set = bool(data.get("selection_explicitly_set", False))
                         if not self.published_dataset_id:
                             for d_id, d_meta in self.registered_datasets.items():
                                 if d_meta.get("is_published"):
                                     self.published_dataset_id = d_id
                                     break
-                        if not self.active_dataset_id or not self.active_analysis_result:
+                        if self._selection_explicitly_cleared:
+                            self.active_dataset_id = None
+                            self.active_analysis_result = None
+                            self.active_dataset_label = None
+                            self._selection_explicitly_set = False
+                        elif not self.active_dataset_id or not self.active_analysis_result:
                             needs_recreation = True
             except Exception as e:
                 logger.warning(f"Active analysis registry could not be parsed: {e}")
@@ -534,7 +544,9 @@ class DataStore:
                 "active_analysis_result": self.active_analysis_result,
                 "active_dataset_updated_at": self.active_dataset_updated_at,
                 "active_dataset_updated_by": self.active_dataset_updated_by,
-                "registered_datasets": self.registered_datasets
+                "registered_datasets": self.registered_datasets,
+                "selection_explicitly_cleared": self._selection_explicitly_cleared,
+                "selection_explicitly_set": self._selection_explicitly_set
             }
             target_dir = os.path.dirname(os.path.abspath(f_path))
             os.makedirs(target_dir, exist_ok=True)
@@ -550,6 +562,92 @@ class DataStore:
             logger.warning(f"Data directory '{self.data_dir}' is not writable; operating with in-memory registry: {e}")
         except Exception as e:
             logger.warning(f"Failed to persist active registry to disk; falling back to in-memory state: {e}")
+
+    def _reconcile_with_persistent_storage(self):
+        """
+        Reconciles in-memory dataset registry with Supabase PostgreSQL.
+        Hydrates metadata, published status, and analysis from public.datasets and public.analysis_results.
+        """
+        if not is_postgres_enabled():
+            return
+
+        try:
+            from src.repository import DatasetRepository, AnalysisRepository
+            pg_datasets = DatasetRepository.list_datasets()
+            if not pg_datasets:
+                if "sample" not in self.registered_datasets:
+                    self._recreate_default_registry()
+                return
+
+            pg_ids = set()
+            for ds in pg_datasets:
+                ds_id = str(ds["id"])
+                pg_ids.add(ds_id)
+                is_pub = (ds.get("status") == "published")
+                label = ds.get("name") or f"Dataset {ds_id}"
+
+                if ds_id not in self.registered_datasets:
+                    an_data = AnalysisRepository.get_analysis(ds_id)
+                    an_res = None
+                    total_cases = 0
+                    if an_data and isinstance(an_data, dict):
+                        an_res = an_data.get("aggregates")
+                        if isinstance(an_res, dict):
+                            total_cases = an_res.get("summary_kpis", {}).get("total_cases") or (
+                                an_res.get("funnel_stages", [{}])[0].get("display_count", 0) if an_res.get("funnel_stages") else 0
+                            )
+
+                    self.registered_datasets[ds_id] = {
+                        "dataset_id": ds_id,
+                        "dataset_label": label,
+                        "analysis_result": an_res,
+                        "total_cases": total_cases,
+                        "updated_at": ds.get("published_at") or ds.get("created_at"),
+                        "updated_by": ds.get("published_by") or ds.get("created_by"),
+                        "is_published": is_pub
+                    }
+                else:
+                    self.registered_datasets[ds_id]["is_published"] = is_pub
+                    self.registered_datasets[ds_id]["dataset_label"] = label
+                    if ds.get("published_by"):
+                        self.registered_datasets[ds_id]["published_by"] = ds["published_by"]
+                    if ds.get("published_at"):
+                        self.registered_datasets[ds_id]["published_at"] = ds["published_at"]
+                    if not self.registered_datasets[ds_id].get("analysis_result"):
+                        an_data = AnalysisRepository.get_analysis(ds_id)
+                        if an_data and isinstance(an_data, dict) and an_data.get("aggregates"):
+                            self.registered_datasets[ds_id]["analysis_result"] = an_data["aggregates"]
+
+            # Authoritative Published Dataset Recovery
+            pub_datasets = [d for d in pg_datasets if d.get("status") == "published"]
+            if pub_datasets:
+                pub_datasets.sort(key=lambda x: str(x.get("published_at") or x.get("created_at") or ""), reverse=True)
+                latest_pub_id = str(pub_datasets[0]["id"])
+                self.published_dataset_id = latest_pub_id
+
+                # Active dataset fallback:
+                # 1. Do NOT restore if Analyst explicitly cleared active selection
+                # 2. Do NOT restore if Analyst explicitly selected in-memory sample dataset
+                # 3. Restore on fresh uninitialized startup (neither set nor cleared)
+                # 4. Fallback if active selection points to a missing/deleted PostgreSQL dataset
+                should_restore = False
+                if self._selection_explicitly_cleared:
+                    should_restore = False
+                elif not self._selection_explicitly_set:
+                    should_restore = True
+                elif self.active_dataset_id != "sample" and self.active_dataset_id not in pg_ids:
+                    should_restore = True
+
+                if should_restore:
+                    self.active_dataset_id = latest_pub_id
+                    target = self.registered_datasets.get(latest_pub_id, {})
+                    self.active_dataset_label = target.get("dataset_label")
+                    self.active_analysis_result = target.get("analysis_result")
+                    self.active_dataset_updated_at = target.get("updated_at")
+                    self.active_dataset_updated_by = target.get("updated_by")
+
+        except Exception as e:
+            logger.warning(f"Could not reconcile with persistent PostgreSQL storage: {e}")
 
     def publish_dataset(self, dataset_id: str, user_id: str = "admin") -> bool:
         """Approves and publishes a dataset, making it available to Viewers."""
@@ -570,10 +668,14 @@ class DataStore:
             return False
         self.registered_datasets[dataset_id]["is_published"] = False
         if self.published_dataset_id == dataset_id:
-            if "sample" in self.registered_datasets and self.registered_datasets["sample"].get("is_published"):
-                self.published_dataset_id = "sample"
-            else:
-                self.published_dataset_id = None
+            next_pub_id = None
+            for d_id, d_meta in self.registered_datasets.items():
+                if d_id != dataset_id and d_id != "sample" and d_meta.get("is_published"):
+                    next_pub_id = d_id
+                    break
+            if not next_pub_id and "sample" in self.registered_datasets and self.registered_datasets["sample"].get("is_published") and dataset_id != "sample":
+                next_pub_id = "sample"
+            self.published_dataset_id = next_pub_id
         self.filter_cache.clear()
         self._persist_active_registry()
         return True
@@ -585,9 +687,13 @@ class DataStore:
             if d.get("is_published"):
                 return d
         for d_id, d_meta in self.registered_datasets.items():
-            if d_meta.get("is_published"):
+            if d_id != "sample" and d_meta.get("is_published"):
                 self.published_dataset_id = d_id
                 return d_meta
+        if "sample" in self.registered_datasets and self.registered_datasets["sample"].get("is_published"):
+            self.published_dataset_id = "sample"
+            return self.registered_datasets["sample"]
+        self.published_dataset_id = None
         return None
 
     def set_active_dataset(
@@ -605,6 +711,8 @@ class DataStore:
         self.active_analysis_result = analysis_result
         self.active_dataset_updated_at = now_ts
         self.active_dataset_updated_by = user_id
+        self._selection_explicitly_cleared = False
+        self._selection_explicitly_set = True
         total_cases = analysis_result.get("summary_kpis", {}).get("total_cases") or analysis_result.get("funnel", {}).get("total_cases", 0)
         self.registered_datasets[dataset_id] = {
             "dataset_id": dataset_id,
@@ -627,15 +735,10 @@ class DataStore:
         self.active_analysis_result = None
         self.active_dataset_updated_at = None
         self.active_dataset_updated_by = None
-        self.published_dataset_id = None
-        self.registered_datasets.clear()
+        self._selection_explicitly_cleared = True
+        self._selection_explicitly_set = False
         self.filter_cache.clear()
-        for p in [self._registry_file_path(), os.path.join(self.data_dir, "active_analysis_registry.json")]:
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+        self._persist_active_registry()
 
     def load_data(self):
         """Loads precomputed JSON artifacts and event log if available."""
@@ -1050,6 +1153,10 @@ async def lifespan(app: FastAPI):
     DATA_STORE.default_epsilon = 0.25
     DATA_STORE.k_threshold = 5
     DATA_STORE.filter_cache.clear()
+
+    # Reconcile dataset registry with persistent PostgreSQL storage if enabled
+    if is_postgres_enabled():
+        DATA_STORE._reconcile_with_persistent_storage()
 
     # Step 1: Database schema initialization (must succeed before user provisioning)
     try:
@@ -2569,6 +2676,20 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset '{dataset_id}' not found in registered datasets."
             )
+
+        # 1. PostgreSQL write-first (if persistent postgres is enabled and dataset exists in PostgreSQL)
+        if is_postgres_enabled():
+            from src.repository import DatasetRepository
+            pg_ds = DatasetRepository.get_dataset(dataset_id)
+            if pg_ds:
+                ok = DatasetRepository.publish_dataset(dataset_id, published_by=user.user_id)
+                if not ok:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Failed to publish dataset '{dataset_id}' in persistent storage."
+                    )
+
+        # 2. In-memory sync second
         success = DATA_STORE.publish_dataset(dataset_id, user_id=user.user_id)
         if not success:
             raise HTTPException(
@@ -2598,6 +2719,34 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Dataset '{dataset_id}' not found in registered datasets."
             )
+
+        # 1. PostgreSQL write-first (if persistent postgres is enabled and dataset exists in PostgreSQL)
+        if is_postgres_enabled():
+            from src.repository import DatasetRepository
+            pg_ds = DatasetRepository.get_dataset(dataset_id)
+            if pg_ds:
+                try:
+                    with get_db_cursor(commit=True) as cur:
+                        cur.execute(
+                            """
+                            UPDATE public.datasets
+                            SET status = 'draft',
+                                published_by = NULL,
+                                published_at = NULL
+                            WHERE id = %s;
+                            """,
+                            (dataset_id,)
+                        )
+                        if cur.rowcount == 0:
+                            raise RuntimeError(f"Database update affected 0 rows for dataset '{dataset_id}'")
+                except Exception as e:
+                    logger.error(f"Failed to unpublish dataset '{dataset_id}' in persistent storage: {e}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"Failed to unpublish dataset '{dataset_id}' in persistent storage."
+                    )
+
+        # 2. In-memory sync second
         DATA_STORE.unpublish_dataset(dataset_id, user_id=user.user_id)
         return sanitize_and_verify_payload({
             "status": "success",
@@ -2616,6 +2765,7 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         Accessible exclusively to Institutional Analysts and Administrators (Viewers receive 403).
         """
         d_id = request_body.dataset_id
+
         if d_id not in DATA_STORE.registered_datasets:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -2627,6 +2777,8 @@ def create_app(data_dir: str = DEFAULT_DATA_DIR) -> FastAPI:
         DATA_STORE.active_analysis_result = target.get("analysis_result")
         DATA_STORE.active_dataset_updated_at = datetime.now(timezone.utc).isoformat()
         DATA_STORE.active_dataset_updated_by = user.user_id
+        DATA_STORE._selection_explicitly_cleared = False
+        DATA_STORE._selection_explicitly_set = True
         DATA_STORE.filter_cache.clear()
         DATA_STORE._persist_active_registry()
         return sanitize_and_verify_payload({

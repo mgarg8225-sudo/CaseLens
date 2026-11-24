@@ -2322,7 +2322,705 @@ def test_existing_health_endpoint_response_intact():
     assert "remaining_epsilon" in res["privacy_engine"]
 
 
+# ==============================================================================
+# 12. Phase 2.1 Dataset Lifecycle & Persistent Metadata Integration Tests
+# ==============================================================================
+
+def _get_api_route(path: str, method: str = "GET"):
+    from src.api import create_app
+    app = create_app()
+    for r in app.routes:
+        if getattr(r, "path", None) == path and method in getattr(r, "methods", []):
+            return r.endpoint
+    raise ValueError(f"Route not found: {method} {path}")
 
 
+def test_dataset_listing_delegates_to_repository_when_postgres_enabled(monkeypatch):
+    """Phase 2.1: Verify GET /api/v1/datasets reconciles with DatasetRepository when PostgreSQL is enabled."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
 
+    mock_pg_datasets = [
+        {
+            "id": "pg-ds-test-001",
+            "name": "Staging Forensic Records",
+            "status": "published",
+            "created_by": "officer_42",
+            "created_at": "2026-02-01T10:00:00Z",
+            "published_by": "admin_chief",
+            "published_at": "2026-02-02T12:00:00Z"
+        }
+    ]
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: mock_pg_datasets)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda ds_id: {"aggregates": {"summary_kpis": {"total_cases": 88}}})
+
+    DATA_STORE._reconcile_with_persistent_storage()
+
+    endpoint = _get_api_route("/api/v1/datasets", method="GET")
+    viewer_user = UserContext(user_id="viewer_test", role=Role.VIEWER, auth_method="jwt")
+    res = endpoint(user=viewer_user)
+
+    assert res["status"] == "success"
+    assert "datasets" in res
+    dataset_ids = [d["dataset_id"] for d in res["datasets"]]
+    assert "pg-ds-test-001" in dataset_ids
+
+    # Find the target dataset item and assert schema fields
+    target_item = next(d for d in res["datasets"] if d["dataset_id"] == "pg-ds-test-001")
+    assert target_item["dataset_label"] == "Staging Forensic Records"
+    assert target_item["is_published"] is True
+    assert target_item["total_cases"] == 88
+
+
+def test_dataset_retrieval_uses_persistent_metadata_and_analysis(monkeypatch):
+    """Phase 2.1: Verify GET /api/v1/datasets/{id} returns persistent metadata and analysis."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+
+    ds_id = "pg-ds-retrieval-002"
+    mock_dataset = {
+        "id": ds_id,
+        "name": "District Court Chargesheets",
+        "status": "published",
+        "created_by": "prosecutor_1",
+        "created_at": "2026-01-10T08:00:00Z",
+        "published_by": "admin_user",
+        "published_at": "2026-01-11T09:00:00Z"
+    }
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [mock_dataset])
+    monkeypatch.setattr("src.repository.DatasetRepository.get_dataset", lambda d_id: mock_dataset if d_id == ds_id else None)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda d_id: {
+        "aggregates": {
+            "summary_kpis": {"total_cases": 250, "fir_rate_pct": 98.5},
+            "funnel_stages": [{"stage": "FIR", "display_count": 250}]
+        }
+    })
+
+    DATA_STORE._reconcile_with_persistent_storage()
+
+    endpoint = _get_api_route("/api/v1/datasets/{dataset_id}", method="GET")
+    viewer_user = UserContext(user_id="viewer_test", role=Role.VIEWER, auth_method="jwt")
+    res = endpoint(dataset_id=ds_id, user=viewer_user)
+
+    assert res["status"] == "success"
+    assert res["dataset_id"] == ds_id
+    assert res["dataset_label"] == "District Court Chargesheets"
+    assert res["is_published"] is True
+    assert res["analysis_result"]["summary_kpis"]["total_cases"] == 250
+
+
+def test_publication_updates_persistent_state_before_memory(monkeypatch):
+    """Phase 2.1: Verify POST /api/v1/datasets/{id}/publish updates PostgreSQL before updating in-memory state."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+
+    ds_id = "pg-ds-publish-003"
+    mock_draft = {
+        "id": ds_id,
+        "name": "Hospital MLC Records",
+        "status": "draft",
+        "created_by": "doctor_1",
+        "created_at": "2026-01-15T10:00:00Z"
+    }
+
+    published_in_db = []
+
+    def mock_publish(target_id, published_by):
+        published_in_db.append((target_id, published_by))
+        return True
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [mock_draft])
+    monkeypatch.setattr("src.repository.DatasetRepository.get_dataset", lambda d_id: mock_draft if d_id == ds_id else None)
+    monkeypatch.setattr("src.repository.DatasetRepository.publish_dataset", mock_publish)
+
+    # Pre-register draft in DATA_STORE
+    DATA_STORE.registered_datasets[ds_id] = {
+        "dataset_id": ds_id,
+        "dataset_label": "Hospital MLC Records",
+        "analysis_result": {"summary_kpis": {"total_cases": 50}},
+        "is_published": False
+    }
+
+    endpoint = _get_api_route("/api/v1/datasets/{dataset_id}/publish", method="POST")
+    admin_user = UserContext(user_id="admin_chief", role=Role.ADMIN, auth_method="jwt")
+    res = endpoint(dataset_id=ds_id, user=admin_user)
+
+    # 1. Assert PostgreSQL was written to first
+    assert len(published_in_db) == 1
+    assert published_in_db[0] == (ds_id, "admin_chief")
+
+    # 2. Assert in-memory state is synchronized
+    assert res["status"] == "success"
+    assert res["is_published"] is True
+    assert DATA_STORE.registered_datasets[ds_id]["is_published"] is True
+    assert DATA_STORE.published_dataset_id == ds_id
+
+
+def test_database_failure_prevents_premature_in_memory_update(monkeypatch):
+    """Phase 2.1: Verify that a PostgreSQL publication failure leaves in-memory state unchanged."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+    from fastapi import HTTPException
+
+    ds_id = "pg-ds-fail-004"
+    mock_draft = {
+        "id": ds_id,
+        "name": "Failing Draft Dataset",
+        "status": "draft",
+        "created_by": "user_fail"
+    }
+
+    def mock_publish_failure(target_id, published_by):
+        return False  # Simulate database update returning rowcount 0
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [mock_draft])
+    monkeypatch.setattr("src.repository.DatasetRepository.get_dataset", lambda d_id: mock_draft if d_id == ds_id else None)
+    monkeypatch.setattr("src.repository.DatasetRepository.publish_dataset", mock_publish_failure)
+
+    # Pre-register draft in memory as unpublished
+    DATA_STORE.registered_datasets[ds_id] = {
+        "dataset_id": ds_id,
+        "dataset_label": "Failing Draft Dataset",
+        "analysis_result": {},
+        "is_published": False
+    }
+
+    endpoint = _get_api_route("/api/v1/datasets/{dataset_id}/publish", method="POST")
+    admin_user = UserContext(user_id="admin_chief", role=Role.ADMIN, auth_method="jwt")
+
+    with pytest.raises(HTTPException) as exc_info:
+        endpoint(dataset_id=ds_id, user=admin_user)
+
+    assert exc_info.value.status_code == 500
+    # Crucial guarantee: In-memory state remains False (NOT prematurely published)
+    assert DATA_STORE.registered_datasets[ds_id]["is_published"] is False
+
+
+def test_active_selection_clearing_does_not_invoke_permanent_deletion(monkeypatch):
+    """Phase 2.1: Verify DELETE /api/v1/datasets/active clears selection without permanent database deletion."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+
+    deletion_called = []
+
+    def mock_delete_dataset(target_id):
+        deletion_called.append(target_id)
+        return True
+
+    monkeypatch.setattr("src.repository.DatasetRepository.delete_dataset", mock_delete_dataset)
+
+    # Set an active dataset in memory
+    DATA_STORE.active_dataset_id = "temp-active-dataset"
+    DATA_STORE.active_dataset_label = "Temporary Active"
+
+    endpoint = _get_api_route("/api/v1/datasets/active", method="DELETE")
+    analyst_user = UserContext(user_id="analyst_test", role=Role.ANALYST, auth_method="jwt")
+    res = endpoint(user=analyst_user)
+
+    assert res["status"] == "success"
+    assert res["message"] == "Active dataset cleared successfully."
+    assert DATA_STORE.active_dataset_id is None
+
+    # Guarantee: Permanent deletion was NEVER invoked
+    assert len(deletion_called) == 0
+
+
+def test_sample_fallback_does_not_create_postgresql_records(monkeypatch):
+    """Phase 2.1: Verify that sample fallback operates in-memory without inserting PostgreSQL records."""
+    import src.api
+    from src.api import DATA_STORE
+
+    save_dataset_called = []
+
+    def mock_save_dataset(*args, **kwargs):
+        save_dataset_called.append((args, kwargs))
+        return {}
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [])
+    monkeypatch.setattr("src.repository.DatasetRepository.save_dataset", mock_save_dataset)
+
+    # Run reconciliation on empty PostgreSQL database
+    DATA_STORE._reconcile_with_persistent_storage()
+
+    # Assert zero database writes occurred
+    assert len(save_dataset_called) == 0
+    # Assert sample fallback is preserved in memory
+    assert "sample" in DATA_STORE.registered_datasets
+
+
+def test_dataset_role_restrictions_and_response_schemas_intact(monkeypatch):
+    """Phase 2.1: Verify RBAC permissions: Viewers receive 403 on drafts; Analysts can activate; schemas intact."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE, SetActiveDatasetRequest
+    from fastapi import HTTPException
+
+    draft_id = "ds-rbac-draft-005"
+    DATA_STORE.registered_datasets[draft_id] = {
+        "dataset_id": draft_id,
+        "dataset_label": "Unapproved Draft",
+        "analysis_result": {"kpis": {}},
+        "is_published": False
+    }
+
+    get_endpoint = _get_api_route("/api/v1/datasets/{dataset_id}", method="GET")
+    viewer_user = UserContext(user_id="viewer_1", role=Role.VIEWER, auth_method="jwt")
+    analyst_user = UserContext(user_id="analyst_1", role=Role.ANALYST, auth_method="jwt")
+
+    # 1. Viewer receives 403 Forbidden on draft
+    with pytest.raises(HTTPException) as exc_403:
+        get_endpoint(dataset_id=draft_id, user=viewer_user)
+    assert exc_403.value.status_code == 403
+
+    # 2. Analyst can view draft
+    res_analyst = get_endpoint(dataset_id=draft_id, user=analyst_user)
+    assert res_analyst["status"] == "success"
+    assert res_analyst["dataset_id"] == draft_id
+    assert res_analyst["is_published"] is False
+
+    # 3. Analyst can activate draft
+    activate_endpoint = _get_api_route("/api/v1/datasets/active", method="POST")
+    req = SetActiveDatasetRequest(dataset_id=draft_id)
+    res_activate = activate_endpoint(request_body=req, user=analyst_user)
+    assert res_activate["status"] == "success"
+    assert res_activate["dataset_id"] == draft_id
+    assert DATA_STORE.active_dataset_id == draft_id
+
+
+# ==============================================================================
+# 13. Phase 2.1 Behavioral Corrections Regression Tests
+# ==============================================================================
+
+def test_clear_active_selection_followed_by_get_active_preserves_empty(monkeypatch):
+    """Phase 2.1: Verify clearing active selection followed by GET /api/v1/datasets/active preserves empty selection."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [
+        {"id": "pg-pub-active-test", "name": "Published Dataset", "status": "published", "published_at": "2026-02-01T00:00:00Z"}
+    ])
+
+    # Pre-condition: Set an active selection
+    DATA_STORE.active_dataset_id = "sample"
+    DATA_STORE.active_dataset_label = "Sample Dataset"
+    DATA_STORE.active_analysis_result = {"kpis": {}}
+    DATA_STORE._selection_explicitly_cleared = False
+
+    # 1. Clear active selection
+    del_endpoint = _get_api_route("/api/v1/datasets/active", method="DELETE")
+    analyst_user = UserContext(user_id="analyst_test", role=Role.ANALYST, auth_method="jwt")
+    del_res = del_endpoint(user=analyst_user)
+    assert del_res["status"] == "success"
+    assert DATA_STORE.active_dataset_id is None
+    assert DATA_STORE._selection_explicitly_cleared is True
+
+    # 2. Subsequent GET /api/v1/datasets/active must NOT restore the published dataset
+    get_endpoint = _get_api_route("/api/v1/datasets/active", method="GET")
+    get_res = get_endpoint(user=analyst_user)
+    assert get_res["status"] == "empty"
+    assert get_res["dataset_id"] is None
+    assert get_res["analysis_result"] is None
+    assert DATA_STORE.active_dataset_id is None
+
+
+def test_clear_active_selection_followed_by_list_datasets_does_not_restore_published(monkeypatch):
+    """Phase 2.1: Verify clearing active selection followed by GET /api/v1/datasets does not restore published dataset."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+
+    mock_pg_datasets = [
+        {"id": "pg-pub-list-test", "name": "Published Records", "status": "published", "published_at": "2026-02-01T00:00:00Z"}
+    ]
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: mock_pg_datasets)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda ds_id: {"aggregates": {"summary_kpis": {"total_cases": 100}}})
+
+    # Register published dataset
+    DATA_STORE.registered_datasets["pg-pub-list-test"] = {
+        "dataset_id": "pg-pub-list-test",
+        "dataset_label": "Published Records",
+        "analysis_result": {"summary_kpis": {"total_cases": 100}},
+        "is_published": True,
+        "total_cases": 100
+    }
+    DATA_STORE.published_dataset_id = "pg-pub-list-test"
+
+    # 1. Clear active selection
+    del_endpoint = _get_api_route("/api/v1/datasets/active", method="DELETE")
+    analyst_user = UserContext(user_id="analyst_test", role=Role.ANALYST, auth_method="jwt")
+    del_endpoint(user=analyst_user)
+    assert DATA_STORE.active_dataset_id is None
+
+    # 2. Call GET /api/v1/datasets as Analyst
+    list_endpoint = _get_api_route("/api/v1/datasets", method="GET")
+    res = list_endpoint(user=analyst_user)
+    assert res["status"] == "success"
+    # Active dataset must remain None
+    assert res["active_dataset_id"] is None
+    assert DATA_STORE.active_dataset_id is None
+    # No dataset in the returned list should be marked is_active
+    for ds in res["datasets"]:
+        assert ds["is_active"] is False
+
+
+def test_select_sample_followed_by_get_requests_preserves_sample(monkeypatch):
+    """Phase 2.1: Verify selecting sample followed by GET requests preserves sample."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE, SetActiveDatasetRequest
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: [
+        {"id": "pg-pub-other", "name": "Published Other", "status": "published", "published_at": "2026-02-01T00:00:00Z"}
+    ])
+
+    DATA_STORE.registered_datasets["sample"] = {
+        "dataset_id": "sample",
+        "dataset_label": "Bundled Demonstration Dataset",
+        "analysis_result": {"summary_kpis": {"total_cases": 25}},
+        "is_published": True,
+        "total_cases": 25
+    }
+    DATA_STORE.registered_datasets["pg-pub-other"] = {
+        "dataset_id": "pg-pub-other",
+        "dataset_label": "Published Other",
+        "analysis_result": {"summary_kpis": {"total_cases": 50}},
+        "is_published": True,
+        "total_cases": 50
+    }
+    DATA_STORE.published_dataset_id = "pg-pub-other"
+
+    analyst_user = UserContext(user_id="analyst_test", role=Role.ANALYST, auth_method="jwt")
+
+    # 1. Activate "sample"
+    activate_endpoint = _get_api_route("/api/v1/datasets/active", method="POST")
+    req = SetActiveDatasetRequest(dataset_id="sample")
+    act_res = activate_endpoint(request_body=req, user=analyst_user)
+    assert act_res["status"] == "success"
+    assert act_res["dataset_id"] == "sample"
+    assert DATA_STORE.active_dataset_id == "sample"
+
+    # 2. Subsequent GET /api/v1/datasets/active preserves sample
+    get_active_endpoint = _get_api_route("/api/v1/datasets/active", method="GET")
+    active_res = get_active_endpoint(user=analyst_user)
+    assert active_res["status"] == "success"
+    assert active_res["dataset_id"] == "sample"
+    assert DATA_STORE.active_dataset_id == "sample"
+
+    # 3. Subsequent GET /api/v1/datasets preserves sample
+    list_endpoint = _get_api_route("/api/v1/datasets", method="GET")
+    list_res = list_endpoint(user=analyst_user)
+    assert list_res["active_dataset_id"] == "sample"
+    assert DATA_STORE.active_dataset_id == "sample"
+
+
+def test_select_valid_postgres_dataset_remains_stable_across_get_requests(monkeypatch):
+    """Phase 2.1: Verify selecting a valid PostgreSQL dataset remains stable across GET requests."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE, SetActiveDatasetRequest
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+
+    ds_id = "pg-valid-select-01"
+    DATA_STORE.registered_datasets[ds_id] = {
+        "dataset_id": ds_id,
+        "dataset_label": "Valid Postgres Dataset",
+        "analysis_result": {"summary_kpis": {"total_cases": 300}},
+        "is_published": False,
+        "total_cases": 300
+    }
+
+    analyst_user = UserContext(user_id="analyst_test", role=Role.ANALYST, auth_method="jwt")
+
+    # 1. Activate PostgreSQL dataset
+    activate_endpoint = _get_api_route("/api/v1/datasets/active", method="POST")
+    req = SetActiveDatasetRequest(dataset_id=ds_id)
+    activate_endpoint(request_body=req, user=analyst_user)
+    assert DATA_STORE.active_dataset_id == ds_id
+
+    # 2. Subsequent GET requests maintain active dataset
+    get_active_endpoint = _get_api_route("/api/v1/datasets/active", method="GET")
+    active_res = get_active_endpoint(user=analyst_user)
+    assert active_res["dataset_id"] == ds_id
+
+    list_endpoint = _get_api_route("/api/v1/datasets", method="GET")
+    list_res = list_endpoint(user=analyst_user)
+    assert list_res["active_dataset_id"] == ds_id
+
+
+def test_fresh_startup_restores_latest_published_dataset(monkeypatch):
+    """Phase 2.1: Verify fresh startup restores the latest published dataset."""
+    import src.api
+    from src.api import DATA_STORE
+
+    mock_pg_datasets = [
+        {
+            "id": "pg-startup-pub-01",
+            "name": "Authoritative Published Startup Dataset",
+            "status": "published",
+            "created_by": "admin",
+            "created_at": "2026-02-10T10:00:00Z",
+            "published_by": "admin",
+            "published_at": "2026-02-10T12:00:00Z"
+        }
+    ]
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: mock_pg_datasets)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda ds_id: {
+        "aggregates": {"summary_kpis": {"total_cases": 500}}
+    })
+
+    # Simulate fresh startup uninitialized state
+    DATA_STORE._selection_explicitly_cleared = False
+    DATA_STORE._selection_explicitly_set = False
+    DATA_STORE.active_dataset_id = "sample"
+
+    # Run startup reconciliation
+    DATA_STORE._reconcile_with_persistent_storage()
+
+    assert DATA_STORE.published_dataset_id == "pg-startup-pub-01"
+    assert DATA_STORE.active_dataset_id == "pg-startup-pub-01"
+    assert DATA_STORE.active_dataset_label == "Authoritative Published Startup Dataset"
+
+
+def test_unpublication_commits_before_updating_in_memory_state(monkeypatch):
+    """Phase 2.1: Verify unpublication commits in database before updating in-memory state."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+    from contextlib import contextmanager
+
+    ds_id = "pg-unpub-order-test"
+    mock_dataset = {
+        "id": ds_id,
+        "name": "Dataset To Unpublish",
+        "status": "published",
+        "published_by": "admin"
+    }
+
+    events = []
+
+    class MockCursor:
+        rowcount = 1
+        def execute(self, query, params=None):
+            events.append(("db_execute", query.strip().split()[0]))
+
+    @contextmanager
+    def mock_get_db_cursor(commit=True):
+        yield MockCursor()
+        if commit:
+            events.append(("db_commit",))
+
+    orig_unpublish = DATA_STORE.unpublish_dataset
+    def tracking_unpublish(dataset_id, user_id="admin"):
+        # Assert database commit occurred BEFORE in-memory unpublish is invoked
+        assert ("db_commit",) in events, "Database commit must occur before updating in-memory state"
+        events.append(("memory_unpublish", dataset_id))
+        return orig_unpublish(dataset_id, user_id=user_id)
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.get_dataset", lambda d_id: mock_dataset if d_id == ds_id else None)
+    monkeypatch.setattr(src.api, "get_db_cursor", mock_get_db_cursor)
+    monkeypatch.setattr(DATA_STORE, "unpublish_dataset", tracking_unpublish)
+
+    # Pre-register dataset as published in memory
+    DATA_STORE.registered_datasets[ds_id] = {
+        "dataset_id": ds_id,
+        "dataset_label": "Dataset To Unpublish",
+        "analysis_result": {},
+        "is_published": True
+    }
+    DATA_STORE.published_dataset_id = ds_id
+
+    endpoint = _get_api_route("/api/v1/datasets/{dataset_id}/unpublish", method="POST")
+    admin_user = UserContext(user_id="admin_chief", role=Role.ADMIN, auth_method="jwt")
+    res = endpoint(dataset_id=ds_id, user=admin_user)
+
+    assert res["status"] == "success"
+    assert res["is_published"] is False
+    assert events == [("db_execute", "UPDATE"), ("db_commit",), ("memory_unpublish", ds_id)]
+    assert DATA_STORE.registered_datasets[ds_id]["is_published"] is False
+
+
+def test_unpublication_database_failure_leaves_in_memory_state_unchanged(monkeypatch):
+    """Phase 2.1: Verify unpublication database failure leaves in-memory state unchanged."""
+    import src.api
+    from src.api import UserContext, Role, DATA_STORE
+    from fastapi import HTTPException
+    from contextlib import contextmanager
+
+    ds_id = "pg-unpub-fail-test"
+    mock_dataset = {
+        "id": ds_id,
+        "name": "Dataset Failing Unpublish",
+        "status": "published"
+    }
+
+    @contextmanager
+    def mock_get_db_cursor_failing(commit=True):
+        raise RuntimeError("Database connection timed out during unpublish transaction")
+        yield
+
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.get_dataset", lambda d_id: mock_dataset if d_id == ds_id else None)
+    monkeypatch.setattr(src.api, "get_db_cursor", mock_get_db_cursor_failing)
+
+    # Pre-register dataset as published
+    DATA_STORE.registered_datasets[ds_id] = {
+        "dataset_id": ds_id,
+        "dataset_label": "Dataset Failing Unpublish",
+        "analysis_result": {},
+        "is_published": True
+    }
+    DATA_STORE.published_dataset_id = ds_id
+
+    endpoint = _get_api_route("/api/v1/datasets/{dataset_id}/unpublish", method="POST")
+    admin_user = UserContext(user_id="admin_chief", role=Role.ADMIN, auth_method="jwt")
+
+    with pytest.raises(HTTPException) as exc_info:
+        endpoint(dataset_id=ds_id, user=admin_user)
+
+    assert exc_info.value.status_code == 500
+    # In-memory published state MUST remain True
+    assert DATA_STORE.registered_datasets[ds_id]["is_published"] is True
+    assert DATA_STORE.published_dataset_id == ds_id
+
+
+def test_importing_src_api_does_not_trigger_database_reconciliation(monkeypatch):
+    """Phase 2.1: Verify importing src.api or constructing DataStore does not execute database queries."""
+    from src.api import DataStore
+
+    reconcile_called = []
+
+    def forbidden_reconcile(self):
+        reconcile_called.append(True)
+        raise AssertionError("Database reconciliation must not be called during DataStore.__init__!")
+
+    monkeypatch.setattr(DataStore, "_reconcile_with_persistent_storage", forbidden_reconcile)
+
+    # Instantiating DataStore must not invoke reconciliation
+    ds = DataStore()
+    assert len(reconcile_called) == 0
+    assert ds._selection_explicitly_cleared is False
+    assert ds._selection_explicitly_set is False
+
+
+def test_explicitly_cleared_selection_preserved_across_datastore_restarts(monkeypatch, tmp_path):
+    """Phase 2.1: Verify explicitly cleared selection survives hard process restart and startup reconciliation."""
+    import src.api
+    from src.api import DataStore
+
+    # 1. Setup initial DataStore in temp directory
+    ds1 = DataStore(data_dir=str(tmp_path))
+    ds1.active_dataset_id = "sample"
+    ds1.clear_active_dataset()
+    assert ds1.active_dataset_id is None
+    assert ds1._selection_explicitly_cleared is True
+
+    # 2. Simulate process restart by instantiating fresh DataStore pointing to same data_dir
+    ds2 = DataStore(data_dir=str(tmp_path))
+    assert ds2.active_dataset_id is None
+    assert ds2._selection_explicitly_cleared is True
+    assert ds2._selection_explicitly_set is False
+
+    # 3. Simulate startup reconciliation with PostgreSQL published dataset
+    mock_pg_datasets = [
+        {
+            "id": "pg-pub-restart-01",
+            "name": "Published Restart Records",
+            "status": "published",
+            "published_at": "2026-02-15T12:00:00Z"
+        }
+    ]
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: mock_pg_datasets)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda ds_id: {
+        "aggregates": {"summary_kpis": {"total_cases": 120}}
+    })
+
+    ds2._reconcile_with_persistent_storage()
+
+    # Active dataset MUST remain None for Analyst
+    assert ds2.active_dataset_id is None
+    assert ds2._selection_explicitly_cleared is True
+    # Published dataset pointer recovers independently for Viewers
+    assert ds2.published_dataset_id == "pg-pub-restart-01"
+    pub_view = ds2.get_published_dataset()
+    assert pub_view is not None
+    assert pub_view["dataset_id"] == "pg-pub-restart-01"
+
+
+def test_genuinely_fresh_registry_restores_latest_published_as_initial_fallback(monkeypatch, tmp_path):
+    """Phase 2.1: Verify a genuinely fresh container with no prior registry restores published dataset as fallback."""
+    import src.api
+    from src.api import DataStore
+
+    empty_dir = tmp_path / "fresh_empty_container"
+    empty_dir.mkdir()
+
+    # 1. Boot fresh DataStore with no registry file
+    ds = DataStore(data_dir=str(empty_dir))
+    assert ds._selection_explicitly_cleared is False
+    assert ds._selection_explicitly_set is False
+
+    # 2. Run startup reconciliation with persistent published dataset
+    mock_pg_datasets = [
+        {
+            "id": "pg-fresh-fallback-01",
+            "name": "Fresh Fallback Published",
+            "status": "published",
+            "published_at": "2026-02-20T10:00:00Z"
+        }
+    ]
+    monkeypatch.setattr(src.api, "is_postgres_enabled", lambda: True)
+    monkeypatch.setattr("src.repository.DatasetRepository.list_datasets", lambda status=None: mock_pg_datasets)
+    monkeypatch.setattr("src.repository.AnalysisRepository.get_analysis", lambda ds_id: {
+        "aggregates": {"summary_kpis": {"total_cases": 450}}
+    })
+
+    ds._reconcile_with_persistent_storage()
+
+    # Authoritative initial fallback is restored
+    assert ds.published_dataset_id == "pg-fresh-fallback-01"
+    assert ds.active_dataset_id == "pg-fresh-fallback-01"
+    assert ds.active_dataset_label == "Fresh Fallback Published"
+
+
+def test_unpublish_dataset_updates_pointer_to_another_published_dataset(monkeypatch, tmp_path):
+    """Phase 2.1: Verify unpublishing dataset immediately updates published pointer to another published dataset."""
+    from src.api import DataStore
+
+    ds = DataStore(data_dir=str(tmp_path))
+    ds.registered_datasets.clear()
+    ds.registered_datasets["ds-pub-1"] = {
+        "dataset_id": "ds-pub-1",
+        "dataset_label": "First Published",
+        "analysis_result": {"kpis": {}},
+        "is_published": True
+    }
+    ds.registered_datasets["ds-pub-2"] = {
+        "dataset_id": "ds-pub-2",
+        "dataset_label": "Second Published",
+        "analysis_result": {"kpis": {}},
+        "is_published": True
+    }
+    ds.published_dataset_id = "ds-pub-1"
+
+    # 1. Unpublish ds-pub-1: Pointer must update to ds-pub-2 immediately, not None
+    res1 = ds.unpublish_dataset("ds-pub-1")
+    assert res1 is True
+    assert ds.registered_datasets["ds-pub-1"]["is_published"] is False
+    assert ds.published_dataset_id == "ds-pub-2"
+
+    # 2. Unpublish ds-pub-2: No published datasets remain, pointer becomes None
+    res2 = ds.unpublish_dataset("ds-pub-2")
+    assert res2 is True
+    assert ds.registered_datasets["ds-pub-2"]["is_published"] is False
+    assert ds.published_dataset_id is None
 
